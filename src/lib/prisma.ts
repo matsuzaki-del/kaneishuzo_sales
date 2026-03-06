@@ -4,7 +4,16 @@ import pg from "pg";
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+    console.error("❌ DATABASE_URL is not set in environment variables.");
+}
+
+const pool = new pg.Pool({
+    connectionString,
+    ssl: { rejectUnauthorized: false } // Supabase等の接続で必要な場合があります
+});
 const adapter = new PrismaPg(pool);
 
 export const prisma =
