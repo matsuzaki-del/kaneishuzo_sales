@@ -16,6 +16,7 @@ model Product {
   forecasts Forecast[]
   sales     MonthlySales[]
   targets   ProductionTarget[]
+  strategies SalesStrategy[]
 }
 
 model MonthlySales {
@@ -57,13 +58,16 @@ model ProductionTarget {
 model SalesStrategy {
   id        String   @id @default(cuid())
   month     String
-  content   String
-  priority  String
-  createdAt DateTime @default(now())
-  category  String   @default("AI_GENERATED")
-  status    String   @default("PENDING")
   title     String   @default("無題の施策")
+  content   String   // AI generated advice
+  priority  String   // HIGH, MEDIUM, INFO
+  category  String   @default("AI_GENERATED") // AI_GENERATED, MANUAL, etc.
+  status    String   @default("PENDING")      // PENDING, ACTIVE, COMPLETED
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+  createdAt DateTime @default(now())
 
   @@index([month])
   @@index([category])
+  @@index([productId])
 }
