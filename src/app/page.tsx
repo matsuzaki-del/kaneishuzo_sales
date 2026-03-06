@@ -63,6 +63,12 @@ export default function Dashboard() {
   const [advices, setAdvices] = useState<Advice[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [stats, setStats] = useState([
+    { label: '予測総需要', value: '---', change: '-', color: 'border-gold-500/20' },
+    { label: '最新月・売上実績', value: '---', change: '-', color: 'border-aqua-500/20' },
+    { label: '実績前月比', value: '---', change: '-', color: 'border-white/10' },
+    { label: 'AIシステム状態', value: 'データ解析中', change: 'Wait', color: 'border-green-500/20' },
+  ]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -73,6 +79,29 @@ export default function Dashboard() {
         const salesRes = await fetch('/api/sales');
         if (!salesRes.ok) throw new Error("実績データの取得に失敗しました。VercelでDATABASE_URLが設定されているか確認してください。");
         const salesData = await salesRes.json();
+
+        // リアルなKPIの計算（実績データから）
+        let currentActual = 0;
+        let prevActual = 0;
+        let momChangeStr = "-";
+
+        if (Array.isArray(salesData) && salesData.length >= 2) {
+          currentActual = salesData[salesData.length - 1].actual || 0;
+          prevActual = salesData[salesData.length - 2].actual || 0;
+          if (prevActual > 0) {
+            const diff = ((currentActual - prevActual) / prevActual) * 100;
+            momChangeStr = (diff > 0 ? "+" : "") + diff.toFixed(1) + "%";
+          }
+        } else if (Array.isArray(salesData) && salesData.length === 1) {
+          currentActual = salesData[0].actual || 0;
+        }
+
+        let newStats = [
+          { label: '次月・予測総需要', value: 'AI計算中...', change: 'Wait', color: 'border-gold-500/20' },
+          { label: '最新月・売上実績', value: currentActual.toLocaleString() + ' 本', change: '確定値', color: 'border-aqua-500/20' },
+          { label: '実績前月比', value: momChangeStr, change: momChangeStr.startsWith('+') ? '上昇傾向' : (momChangeStr === '-' ? '-' : '下降傾向'), color: 'border-white/10' },
+          { label: 'AIシステム状態', value: '稼働中', change: 'Online', color: 'border-green-500/20' },
+        ];
 
         // 予測データ取得（失敗してもエラーで止めない）
         let combinedData = salesData;
@@ -89,14 +118,21 @@ export default function Dashboard() {
                 forecast: forecastData.forecast
               }];
               fetchedAdvices = forecastData.advices || [];
+              newStats[0].value = forecastData.forecast.toLocaleString() + ' 本';
+              newStats[0].change = 'AI予測';
             }
           }
         } catch (fErr) {
           console.warn("Forecast fetch failed:", fErr);
+          newStats[0].value = '予測不能';
+          newStats[0].change = 'Error';
+          newStats[3].value = '一部機能停止';
+          newStats[3].change = 'Offline';
         }
 
         setChartData(combinedData);
         setAdvices(fetchedAdvices);
+        setStats(newStats);
 
       } catch (error: any) {
         console.error("Failed to fetch dashboard data:", error);
@@ -166,12 +202,7 @@ export default function Dashboard() {
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {[
-            { label: '予測総需要', value: chartData.find(d => d.month === '予測')?.forecast?.toLocaleString() + ' 本' || '---', change: '+12.5%', color: 'border-gold-500/20' },
-            { label: '生産進捗', value: '68%', change: '好調', color: 'border-aqua-500/20' },
-            { label: '推奨仕込み量', value: '3,800kg', change: '-5.2%', color: 'border-white/10' },
-            { label: '分析機材ステータス', value: '正常', change: 'Online', color: 'border-green-500/20' },
-          ].map((stat, i) => (
+          {stats.map((stat, i) => (
             <motion.div
               key={i}
               initial={{ opacity: 0, y: 20 }}
