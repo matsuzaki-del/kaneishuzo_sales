@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-navy: #0A192F;
+  --color-brand-gold: #D4AF37;
+  --color-brand-aqua: #00F5FF;
+  --color-glass-bg: rgba(255, 255, 255, 0.05);
+  --color-glass-border: rgba(255, 255, 255, 0.1);
+}
+
+:root {
+  --background: #0A192F;
+  --foreground: #F8FAFC;
+  --card: rgba(255, 255, 255, 0.03);
+  --card-foreground: #F8FAFC;
+  --primary: #D4AF37;
+  --primary-foreground: #0A192F;
+  --border: rgba(255, 255, 255, 0.1);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  min-height: 100vh;
+  margin: 0;
+}
+
+.glass-card {
+  background: var(--card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+}
+
+.glow-gold {
+  box-shadow: 0 0 20px rgba(212, 175, 55, 0.2);
+}
+
+.glow-aqua {
+  box-shadow: 0 0 20px rgba(0, 245, 255, 0.2);
+}
