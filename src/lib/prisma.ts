@@ -4,7 +4,11 @@ import pg from "pg";
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-const connectionString = process.env.DATABASE_URL;
+// SupabaseのTransaction Pooler (6543) を使う場合、pgbouncer=true が必要です
+const baseConnectionString = process.env.DATABASE_URL;
+const connectionString = baseConnectionString?.includes("pgbouncer")
+    ? baseConnectionString
+    : `${baseConnectionString}${baseConnectionString?.includes("?") ? "&" : "?"}pgbouncer=true`;
 
 if (!connectionString) {
     console.error("❌ DATABASE_URL is not set in environment variables.");
@@ -12,7 +16,8 @@ if (!connectionString) {
 
 const pool = new pg.Pool({
     connectionString,
-    ssl: { rejectUnauthorized: false } // Supabase等の接続で必要な場合があります
+    ssl: { rejectUnauthorized: false },
+    max: 1 // サーバーレス環境でのコネクション枯渇を防ぐ
 });
 const adapter = new PrismaPg(pool);
 
