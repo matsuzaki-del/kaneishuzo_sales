@@ -5,8 +5,11 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
     try {
+        // デバッグ用に接続確認
+        await prisma.$connect();
+
         // 全商品の月別合計売上を取得
-        const sales = await prisma.monthlySales.groupBy({
+        const sales = await (prisma.monthlySales as any).groupBy({
             by: ['month'],
             _sum: {
                 quantity: true
@@ -20,13 +23,16 @@ export async function GET() {
         const chartData = sales.map((s: any) => ({
             month: s.month,
             actual: s._sum.quantity || 0,
-            // 予測値は一旦 null または 0 で返す（後ほど AI 連携で埋める）
             forecast: null
         }));
 
         return NextResponse.json(chartData);
-    } catch (error) {
+    } catch (error: any) {
         console.error("Failed to fetch sales data:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return NextResponse.json({
+            error: "Database Connection Error",
+            details: error.message,
+            code: error.code
+        }, { status: 500 });
     }
 }

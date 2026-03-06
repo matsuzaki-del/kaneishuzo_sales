@@ -77,7 +77,10 @@ export default function Dashboard() {
         setErrorMsg(null);
 
         const salesRes = await fetch('/api/sales');
-        if (!salesRes.ok) throw new Error("実績データの取得に失敗しました。VercelでDATABASE_URLが設定されているか確認してください。");
+        if (!salesRes.ok) {
+          const errData = await salesRes.json().catch(() => ({}));
+          throw new Error(errData.details || errData.error || "実績データの取得に失敗しました。Vercelの環境変数設定を再確認してください。");
+        }
         const salesData = await salesRes.json();
 
         // リアルなKPIの計算（実績データから）
