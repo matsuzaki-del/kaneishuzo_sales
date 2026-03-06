@@ -14,7 +14,8 @@ import {
   CloudLightning,
   MessageSquare,
   ArrowUpRight,
-  ChevronRight
+  ChevronRight,
+  AlertCircle
 } from 'lucide-react';
 import {
   AreaChart,
@@ -61,34 +62,46 @@ export default function Dashboard() {
   const [chartData, setChartData] = useState<ForecastData[]>([]);
   const [advices, setAdvices] = useState<Advice[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        // 実績データの取得
+        setErrorMsg(null);
+
         const salesRes = await fetch('/api/sales');
+        if (!salesRes.ok) throw new Error("実績データの取得に失敗しました。VercelでDATABASE_URLが設定されているか確認してください。");
         const salesData = await salesRes.json();
 
-        // AI予測データの取得
-        const forecastRes = await fetch('/api/forecast', { method: 'POST' });
-        const forecastData = await forecastRes.json();
+        // 予測データ取得（失敗してもエラーで止めない）
+        let combinedData = salesData;
+        let fetchedAdvices = [];
 
-        if (forecastData.forecast) {
-          // 最後に予測データを追加
-          const lastMonthData = salesData[salesData.length - 1];
-          const combined = [...salesData, {
-            month: "予測",
-            actual: null,
-            forecast: forecastData.forecast
-          }];
-          setChartData(combined);
-          setAdvices(forecastData.advices || []);
-        } else {
-          setChartData(salesData);
+        try {
+          const forecastRes = await fetch('/api/forecast', { method: 'POST' });
+          if (forecastRes.ok) {
+            const forecastData = await forecastRes.json();
+            if (forecastData.forecast && Array.isArray(salesData) && salesData.length > 0) {
+              combinedData = [...salesData, {
+                month: "予測",
+                actual: null,
+                forecast: forecastData.forecast
+              }];
+              fetchedAdvices = forecastData.advices || [];
+            }
+          }
+        } catch (fErr) {
+          console.warn("Forecast fetch failed:", fErr);
         }
-      } catch (error) {
+
+        setChartData(combinedData);
+        setAdvices(fetchedAdvices);
+
+      } catch (error: any) {
         console.error("Failed to fetch dashboard data:", error);
+        setErrorMsg(error.message || "エラーが発生しました。");
+        setChartData([]);
       } finally {
         setLoading(false);
       }
@@ -202,6 +215,11 @@ export default function Dashboard() {
             <div className="h-[300px] w-full">
               {loading ? (
                 <div className="w-full h-full flex items-center justify-center text-slate-500">AIがデータを解析中...</div>
+              ) : errorMsg ? (
+                <div className="w-full h-full flex flex-col items-center justify-center text-rose-400">
+                  <AlertCircle className="w-12 h-12 mb-4 opacity-50" />
+                  <p>{errorMsg}</p>
+                </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={chartData}>
