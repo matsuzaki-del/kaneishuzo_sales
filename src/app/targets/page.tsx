@@ -16,14 +16,39 @@ import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 
-const targetItems = [
-    { id: 1, name: '純米吟醸 蔵出し', target: 500, actual: 420, status: 'in-progress', category: '特定名称酒' },
-    { id: 2, name: '本醸造 金印', target: 1200, actual: 1250, status: 'completed', category: '一般酒' },
-    { id: 3, name: '大吟醸 雫取り', target: 100, actual: 20, status: 'warning', category: '特定名称酒' },
-    { id: 4, name: '純米酒 山田錦', target: 800, actual: 600, status: 'in-progress', category: '特定名称酒' },
-];
+interface TargetItem {
+    id: string;
+    name: string;
+    category: string | null;
+    currentMonthActual: number;
+    diff: number;
+    status: 'in-progress' | 'warning' | 'completed';
+}
 
 export default function TargetsPage() {
+    const [targetItems, setTargetItems] = useState<TargetItem[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+    React.useEffect(() => {
+        const fetchTargets = async () => {
+            try {
+                setLoading(true);
+                const res = await fetch('/api/products');
+                if (!res.ok) throw new Error("データの取得に失敗しました。");
+                const data = await res.json();
+                setTargetItems(data);
+            } catch (err: any) {
+                console.error(err);
+                setErrorMsg(err.message);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchTargets();
+    }, []);
+
+    const targetMonth = new Date().getMonth() + 1;
     return (
         <div className="min-h-screen bg-brand-navy text-slate-100 p-6 lg:p-10">
             <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
@@ -36,7 +61,7 @@ export default function TargetsPage() {
                             <Target className="text-brand-gold" />
                             <span>生産目標管理</span>
                         </h1>
-                        <p className="text-slate-400">2026年3月度の醸造・出荷スケジュール</p>
+                        <p className="text-slate-400">2026年{targetMonth}月度の醸造・出荷スケジュール</p>
                     </div>
                 </div>
 
@@ -82,43 +107,65 @@ export default function TargetsPage() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-white/5">
-                                {targetItems.map((item) => (
-                                    <tr key={item.id} className="hover:bg-white/[0.02] transition-colors group">
-                                        <td className="px-6 py-4 font-bold">{item.name}</td>
-                                        <td className="px-6 py-4">
-                                            <span className="text-xs text-slate-400 bg-slate-800 px-2 py-1 rounded">
-                                                {item.category}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <StatusBadge status={item.status as any} />
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="flex flex-col space-y-1 w-32">
-                                                <div className="flex justify-between text-xs mb-1">
-                                                    <span>{Math.round((item.actual / item.target) * 100)}%</span>
-                                                    <span className="text-slate-500">{item.actual}/{item.target}</span>
-                                                </div>
-                                                <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
-                                                    <motion.div
-                                                        initial={{ width: 0 }}
-                                                        animate={{ width: `${Math.min(100, (item.actual / item.target) * 100)}%` }}
-                                                        className={cn(
-                                                            "h-full rounded-full",
-                                                            item.status === 'completed' ? "bg-emerald-500" :
-                                                                item.status === 'warning' ? "bg-rose-500" : "bg-brand-aqua"
-                                                        )}
-                                                    />
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <button className="p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors">
-                                                <MoreVertical size={18} />
-                                            </button>
+                                {loading ? (
+                                    <tr>
+                                        <td colSpan={5} className="px-6 py-20 text-center text-slate-500">
+                                            データを読み込み中...
                                         </td>
                                     </tr>
-                                ))}
+                                ) : errorMsg ? (
+                                    <tr>
+                                        <td colSpan={5} className="px-6 py-20 text-center text-rose-400">
+                                            {errorMsg}
+                                        </td>
+                                    </tr>
+                                ) : targetItems.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={5} className="px-6 py-20 text-center text-slate-500">
+                                            データが見つかりませんでした。
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    targetItems.map((item) => (
+                                        <tr key={item.id} className="hover:bg-white/[0.02] transition-colors group">
+                                            <td className="px-6 py-4 font-bold">{item.name}</td>
+                                            <td className="px-6 py-4">
+                                                <span className="text-xs text-slate-400 bg-slate-800 px-2 py-1 rounded">
+                                                    {item.category || '未分類'}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <StatusBadge status={item.status} />
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="flex flex-col space-y-1 w-32">
+                                                    <div className="flex justify-between text-xs mb-1">
+                                                        <span className={cn(item.diff >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                                                            前月比 {item.diff > 0 ? "+" : ""}{item.diff.toFixed(1)}%
+                                                        </span>
+                                                        <span className="text-slate-500">{item.currentMonthActual.toLocaleString()}本</span>
+                                                    </div>
+                                                    <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+                                                        <motion.div
+                                                            initial={{ width: 0 }}
+                                                            animate={{ width: `${Math.min(100, Math.max(0, 50 + item.diff))}%` }} // 実績がないため、一旦比率で簡易表現
+                                                            className={cn(
+                                                                "h-full rounded-full",
+                                                                item.status === 'completed' ? "bg-emerald-500" :
+                                                                    item.status === 'warning' ? "bg-rose-500" : "bg-brand-aqua"
+                                                            )}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <button className="p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors">
+                                                    <MoreVertical size={18} />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
                             </tbody>
                         </table>
                     </div>

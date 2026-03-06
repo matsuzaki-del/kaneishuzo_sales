@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,24 +7,24 @@ datasource db {
 }
 
 model Product {
-  id        String   @id @default(cuid())
-  code      String   @unique
+  id        String             @id @default(cuid())
+  code      String             @unique
   name      String
   category  String?
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
   forecasts Forecast[]
   sales     MonthlySales[]
   targets   ProductionTarget[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }
 
 model MonthlySales {
   id        String   @id @default(cuid())
-  month     String   // e.g., "2024-03"
+  month     String
   quantity  Float
   productId String
-  product   Product  @relation(fields: [productId], references: [id])
   createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id])
 
   @@unique([month, productId])
 }
@@ -37,8 +34,8 @@ model Forecast {
   month     String
   quantity  Float
   productId String
-  product   Product  @relation(fields: [productId], references: [id])
   createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id])
 
   @@unique([month, productId])
 }
@@ -48,11 +45,11 @@ model ProductionTarget {
   month     String
   target    Float
   actual    Float    @default(0)
-  status    String   @default("in-progress") // in-progress, completed, warning
+  status    String   @default("in-progress")
   productId String
-  product   Product  @relation(fields: [productId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  product   Product  @relation(fields: [productId], references: [id])
 
   @@unique([month, productId])
 }
@@ -60,12 +57,12 @@ model ProductionTarget {
 model SalesStrategy {
   id        String   @id @default(cuid())
   month     String
-  title     String   @default("無題の施策")
-  content   String   // AI generated advice
-  priority  String   // HIGH, MEDIUM, INFO
-  category  String   @default("AI_GENERATED") // AI_GENERATED, MANUAL, etc.
-  status    String   @default("PENDING")      // PENDING, ACTIVE, COMPLETED
+  content   String
+  priority  String
   createdAt DateTime @default(now())
+  category  String   @default("AI_GENERATED")
+  status    String   @default("PENDING")
+  title     String   @default("無題の施策")
 
   @@index([month])
   @@index([category])
