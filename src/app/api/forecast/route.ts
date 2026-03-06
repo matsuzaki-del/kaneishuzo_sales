@@ -19,7 +19,7 @@ export async function POST() {
             take: 12
         });
 
-        const dataString = historicalSales.map(s => `${s.month}: ${s._sum.quantity}`).join("\n");
+        const dataString = historicalSales.map((s: any) => `${s.month}: ${s._sum.quantity}`).join("\n");
 
         const prompt = `
 あなたは老舗酒造店「金井酒造店」のAI経営コンサルタントです。
