@@ -1,28 +1,23 @@
 import { PrismaClient } from "@prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
-import pg from "pg";
+import { PrismaNeon } from "@prisma/adapter-neon";
+import { Pool } from "@neondatabase/serverless";
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-// SupabaseのTransaction Pooler (6543) を使う場合、pgbouncer=true が必要です
-const baseConnectionString = process.env.DATABASE_URL;
-const connectionString = baseConnectionString?.includes("pgbouncer")
-    ? baseConnectionString
-    : `${baseConnectionString}${baseConnectionString?.includes("?") ? "&" : "?"}pgbouncer=true`;
+// Vercel Postgres (Neon) の接続文字列
+// POSTGRES_PRISMA_URL (Pooling) または DATABASE_URL (Direct) を使用
+const connectionString = process.env.POSTGRES_PRISMA_URL || process.env.DATABASE_URL;
 
 if (!connectionString) {
-    console.error("❌ DATABASE_URL is not set in environment variables.");
+    console.error("❌ Database connection string is not set.");
 }
 
-const pool = new pg.Pool({
-    connectionString,
-    ssl: { rejectUnauthorized: false },
-    max: 1 // サーバーレス環境でのコネクション枯渇を防ぐ
-});
-const adapter = new PrismaPg(pool);
+// Neonサーバーレスアダプターの初期化
+const pool = new Pool({ connectionString });
+const adapter = new PrismaNeon(pool as any);
 
 export const prisma =
     globalForPrisma.prisma ||
-    new PrismaClient({ adapter });
+    new PrismaClient({ adapter: adapter as any });
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;

@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -26,7 +28,7 @@ export async function POST() {
         // 2. AI用のデータ文字列を作成（銘柄別）
         const dataString = products.map((p: any) => {
             const salesHistory = p.sales.map((s: any) => `${s.month}: ${s.quantity}`).join(", ");
-            return `銘柄: ${p.name} (Code: ${p.code})\n実績: ${salesHistory || "なし"}`;
+            return `銘柄: ${p.name} (ID: ${p.id})\nカテゴリー: ${p.category || "未分類"}\n実績: ${salesHistory || "なし"}`;
         }).join("\n\n");
 
         const currentMonth = new Date().toISOString().slice(0, 7);

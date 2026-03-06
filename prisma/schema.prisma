@@ -4,30 +4,49 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Customer {
+  id        Int            @id @default(autoincrement())
+  name      String         @unique
+  sales     MonthlySales[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 }
 
 model Product {
-  id        String             @id @default(cuid())
-  code      String             @unique
+  id        String             @id // 商品コード (文字列)
   name      String
-  category  String?
+  category  String?            // 製成名称 (純米酒、本醸造など)
+  subCategory String?          // 製成コードがあれば
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
-  forecasts Forecast[]
   sales     MonthlySales[]
+  forecasts Forecast[]
   targets   ProductionTarget[]
   strategies SalesStrategy[]
 }
 
 model MonthlySales {
-  id        String   @id @default(cuid())
-  month     String
-  quantity  Float
-  productId String
-  createdAt DateTime @default(now())
-  product   Product  @relation(fields: [productId], references: [id])
+  id           Int      @id @default(autoincrement())
+  month        String   // YYYY-MM
+  quantity     Float    // 数量
+  salesAmount  Float?   // 売上高
+  unitPrice    Float?   // 単価
+  
+  customerId   Int
+  customer     Customer @relation(fields: [customerId], references: [id])
+  
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id])
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  @@unique([month, productId])
+  @@index([month])
+  @@index([customerId])
+  @@index([productId])
 }
 
 model Forecast {
