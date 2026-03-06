@@ -15,7 +15,7 @@ export async function GET() {
         });
 
         // フロントエンドの AreaChart 形式に整形
-        const chartData = sales.map(s => ({
+        const chartData = sales.map((s: any) => ({
             month: s.month,
             actual: s._sum.quantity || 0,
             // 予測値は一旦 null または 0 で返す（後ほど AI 連携で埋める）
