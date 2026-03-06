@@ -2,13 +2,15 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
+export const dynamic = 'force-dynamic';
+
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 export async function POST() {
     try {
         // 1. 全銘柄と過去の実績を取得
-        const products = await prisma.product.findMany({
+        const products = await (prisma.product as any).findMany({
             include: {
                 sales: {
                     orderBy: { month: 'asc' },
@@ -71,7 +73,7 @@ ${dataString}
         if (aiResponse.forecasts && Array.isArray(aiResponse.forecasts)) {
             for (const f of aiResponse.forecasts) {
                 if (f.productId && f.forecast) {
-                    await prisma.forecast.upsert({
+                    await (prisma.forecast as any).upsert({
                         where: { month_productId: { month: nextMonth, productId: f.productId } },
                         update: { quantity: f.forecast },
                         create: { month: nextMonth, productId: f.productId, quantity: f.forecast }
@@ -112,12 +114,12 @@ ${dataString}
 
         if (allStrategies.length > 0) {
             // 当月の既存AI生成施策をクリア
-            await prisma.salesStrategy.deleteMany({
+            await (prisma.salesStrategy as any).deleteMany({
                 where: { month: currentMonth, category: "AI_GENERATED" }
             });
 
             // まとめて作成
-            await prisma.salesStrategy.createMany({
+            await (prisma.salesStrategy as any).createMany({
                 data: allStrategies
             });
         }
