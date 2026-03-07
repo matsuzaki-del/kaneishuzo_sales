@@ -25,7 +25,7 @@ if (!connectionString) {
     try {
         const url = new URL(connectionString);
         console.log(`✅ Using Neon Adapter: host=${url.hostname}, protocol=${url.protocol}`);
-    } catch (e) {
+    } catch {
         console.log(`✅ Using Neon Adapter (URL Length: ${connectionString.length})`);
     }
 }
