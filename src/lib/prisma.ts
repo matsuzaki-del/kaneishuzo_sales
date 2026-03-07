@@ -1,105 +1,87 @@
 import { PrismaClient } from "@prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
-import { Pool } from "pg";
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-// --- データベース接続情報の取得と正規化 ---
-console.log("--- DB Connection Setup (Neon Endpoint Sync) ---");
+console.log("--- DB Connection Diagnostics (Native Engine) ---");
+
+// 診断: 関連する環境変数名のリスト (値は秘匿)
+const envNames = Object.keys(process.env).filter(k => 
+  k.includes("DATABASE") || k.includes("POSTGRES") || k.includes("URL") || k.includes("NEON")
+);
+console.log("Relevant Env Names:", envNames.join(", "));
 
 const getSafeEnv = (key: string): string => {
-    const val = process.env[key];
-    if (typeof val !== "string") return "";
-    return val.trim().replace(/[\s\u3000]/g, "");
+  const val = process.env[key];
+  if (typeof val !== "string") return "";
+  return val.trim().replace(/[\s\u3000]/g, "");
 };
 
 /**
- * Neon の接続文字列を補正する (user@endpoint-id 形式への変換)
+ * Neon 接続文字列の補正
  */
-const augmentNeonUrl = (urlStr: string): string => {
-    if (!urlStr.includes("neon.tech")) return urlStr;
-
-    try {
-        const url = new URL(urlStr);
-        // ホスト名からエンドポイントIDを抽出 (例: ep-xxx-pooler.region.aws.neon.tech -> ep-xxx)
-        const endpointId = url.hostname.split('.')[0].replace("-pooler", "");
-
-        // ユーザー名に @endpointId が含まれていない場合に付加する
-        if (url.username && !url.username.includes("@")) {
-            console.log(`💡 Augmenting Neon username with endpoint ID: ${endpointId}`);
-            url.username = `${url.username}@${endpointId}`;
-            return url.toString();
-        }
-    } catch (e) {
-        console.warn("⚠️ Failed to parse/augment URL:", e);
+const fixNeonUrl = (urlStr: string): string => {
+  if (!urlStr || !urlStr.includes("neon.tech")) return urlStr;
+  try {
+    const u = new URL(urlStr);
+    if (u.username && !u.username.includes("@")) {
+      const ep = u.hostname.split(".")[0].replace("-pooler", "");
+      console.log(`💡 Neon Fix: Appending @${ep} to user`);
+      u.username = `${u.username}@${ep}`;
+      return u.toString();
     }
-    return urlStr;
+  } catch (e) {
+    console.warn("⚠️ Neon Fix Error:", e);
+  }
+  return urlStr;
 };
 
-/**
- * 接続情報の探索と構築
- */
-const findDatabaseUrl = (): string => {
-    // 1. 有効な環境変数の探索
-    const envCandidates = [
-        "DATABASE_URL",
-        "POSTGRES_PRISMA_URL",
-        "POSTGRES_URL",
-        "POSTGRES_URL_NON_POOLING",
-        "DATABASEURL_POSTGRES_URL_NO_SSL",
-        "DATABASEURL_DATABASE_URL",
-        "DATABASEURL_POSTGRES_URL"
-    ];
-
-    for (const key of envCandidates) {
-        const val = getSafeEnv(key);
-        if (val && val.startsWith("postgres") && !val.includes("localhost")) {
-            console.log(`🚀 Using connection info found in: ${key}`);
-            return augmentNeonUrl(val);
-        }
+// 1. 接続URLの探索
+const findUrl = () => {
+  const candidates = [
+    "POSTGRES_PRISMA_URL",
+    "DATABASE_URL",
+    "POSTGRES_URL",
+    "POSTGRES_URL_NON_POOLING",
+    "DATABASEURL_POSTGRES_URL_NO_SSL",
+    "DATABASEURL_DATABASE_URL"
+  ];
+  for (const k of candidates) {
+    const v = getSafeEnv(k);
+    if (v && v.startsWith("postgres") && !v.includes("localhost")) {
+      console.log(`🚀 Found DB URL in: ${k}`);
+      return fixNeonUrl(v);
     }
-
-    // 2. パラメータからの構築
-    const host = getSafeEnv("DATABASEURL_POSTGRES_HOST") || getSafeEnv("DATABASEURL_PGHOST") || getSafeEnv("PGHOST");
-    const user = getSafeEnv("DATABASEURL_POSTGRES_USER") || getSafeEnv("DATABASEURL_PGUSER") || getSafeEnv("PGUSER");
-    const pass = getSafeEnv("DATABASEURL_POSTGRES_PASSWORD") || getSafeEnv("DATABASEURL_PGPASSWORD") || getSafeEnv("PGPASSWORD");
-    const db = getSafeEnv("DATABASEURL_POSTGRES_DATABASE") || getSafeEnv("DATABASEURL_PGDATABASE") || getSafeEnv("PGDATABASE") || "neondb";
-
-    if (host && user && pass) {
-        console.log("🚀 Reconstructing URL from individual parameters.");
-        const rawUrl = `postgresql://${user}:${pass}@${host}/${db}?sslmode=require`;
-        return augmentNeonUrl(rawUrl);
-    }
-
-    return "";
+  }
+  return null;
 };
 
-const finalUrl = findDatabaseUrl();
+let finalUrl = findUrl();
 
+// 2. パラメータからの構築 (フォールバック)
 if (!finalUrl) {
-    console.error("❌ CRITICAL: No DB connection info available.");
-    throw new Error("DATABASE_CONFIG_NOT_FOUND");
+  const h = getSafeEnv("DATABASEURL_POSTGRES_HOST") || getSafeEnv("DATABASEURL_PGHOST") || getSafeEnv("PGHOST");
+  const u = getSafeEnv("DATABASEURL_POSTGRES_USER") || getSafeEnv("DATABASEURL_PGUSER") || getSafeEnv("PGUSER");
+  const p = getSafeEnv("DATABASEURL_POSTGRES_PASSWORD") || getSafeEnv("DATABASEURL_PGPASSWORD") || getSafeEnv("PGPASSWORD");
+  const d = getSafeEnv("DATABASEURL_POSTGRES_DATABASE") || getSafeEnv("DATABASEURL_PGDATABASE") || getSafeEnv("PGDATABASE") || "neondb";
+
+  if (h && u && p) {
+    console.log("🚀 Reconstructing URL from individual parameters.");
+    finalUrl = fixNeonUrl(`postgresql://${u}:${p}@${h}/${d}?sslmode=require`);
+  }
 }
 
-console.log(`✅ DB URL Ready (Length: ${finalUrl.length})`);
+if (!finalUrl) {
+  console.error("❌ CRITICAL: No database connection info found.");
+} else {
+  console.log(`✅ Final DB URL Ready (Length: ${finalUrl.length})`);
+  process.env.DATABASE_URL = finalUrl;
+}
 
-// 3. プロセス環境変数を確定 (Prisma Client 内部用)
-process.env.DATABASE_URL = finalUrl;
-
-// 4. 標準 PG ドライバによる Pool の初期化
-const pool = new Pool({
-    connectionString: finalUrl,
-    ssl: {
-        rejectUnauthorized: false
-    }
-});
-
-const adapter = new PrismaPg(pool);
-
+// ネイティブの Prisma Client を使用
 export const prisma =
-    globalForPrisma.prisma ||
-    new PrismaClient({
-        adapter: adapter
-    });
+  globalForPrisma.prisma ||
+  new PrismaClient({
+    datasourceUrl: finalUrl || undefined,
+  });
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
