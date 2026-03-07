@@ -21,10 +21,17 @@ const cleanEnvVar = (val: string | undefined): string => {
 
 console.log("--- DB Connection (Extreme Clean Mode) ---");
 
-// Vercel Postgres (Neon) を強制優先し、Supabase を完全に後回しにする
+// 診断出力: 利用可能な環境変数のキー名を列挙（値は秘匿）
+const envKeys = Object.keys(process.env).filter(key =>
+    key.startsWith("POSTGRES") || key.startsWith("DATABASE") || key.startsWith("NEON")
+);
+console.log(`🔍 Available DB Env Vars: ${envKeys.join(", ")}`);
+
+// Vercel Postgres (Neon) を最優先する
 const postgresUrlNonPooling = cleanEnvVar(process.env.POSTGRES_URL_NON_POOLING);
 const postgresPrismaUrl = cleanEnvVar(process.env.POSTGRES_PRISMA_URL);
 const postgresUrl = cleanEnvVar(process.env.POSTGRES_URL);
+const neonDatabaseUrl = cleanEnvVar(process.env.NEON_DATABASE_URL);
 const databaseUrl = cleanEnvVar(process.env.DATABASE_URL);
 
 // 最終的な接続先決定
@@ -32,6 +39,7 @@ const connectionString =
     postgresUrlNonPooling ||
     postgresPrismaUrl ||
     postgresUrl ||
+    neonDatabaseUrl ||
     databaseUrl;
 
 if (!connectionString) {
