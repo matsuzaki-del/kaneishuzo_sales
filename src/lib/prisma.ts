@@ -22,7 +22,8 @@ let client: PrismaClient;
 if (connectionString) {
     // Neon 公式のサーバーレスドライバを使用
     const neonPool = new Pool({ connectionString });
-    const adapter = new PrismaNeon(neonPool);
+    // 型不整合を回避するために any キャストを使用
+    const adapter = new PrismaNeon(neonPool as any);
     client = new PrismaClient({ adapter });
 } else {
     client = new PrismaClient();
