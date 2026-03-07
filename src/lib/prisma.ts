@@ -81,7 +81,12 @@ if (!finalUrl) {
 export const prisma =
   globalForPrisma.prisma ||
   new PrismaClient({
-    datasourceUrl: finalUrl || undefined,
-  });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    datasources: {
+      db: {
+        url: finalUrl || undefined
+      }
+    }
+  } as any);
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
