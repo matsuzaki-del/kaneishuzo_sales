@@ -26,18 +26,24 @@ const rawConnString =
 
 let finalConnectionString = "";
 
-// 3. 接続情報の優先度決定：個別パラメータが揃っていれば手動構築を最優先とする（パースミスを防ぐため）
+// 3. 接続情報の優先度決定：個別パラメータが揃っていれば手動構築を最優先とする
 if (host && user && password) {
     console.log("🚀 Reconstructing connection string from individual parameters.");
-    // パスワードなどの特殊文字を考慮した URL 構築（簡易版。必要なら encodeURIComponent を検討）
-    finalConnectionString = `postgresql://${user}:${password}@${host}/${dbName}?sslmode=require`;
+    try {
+        // 安全な URL 構築のために URL オブジェクトを使用
+        const url = new URL(`postgresql://${host}/${dbName}`);
+        url.username = user;
+        url.password = password;
+        url.searchParams.set("sslmode", "require");
+        url.searchParams.set("connect_timeout", "15");
+        finalConnectionString = url.toString();
+    } catch (e) {
+        console.error("❌ Failed to construct URL from parameters:", e);
+        finalConnectionString = rawConnString;
+    }
 } else if (rawConnString) {
     console.log("🚀 Using existing connection string.");
     finalConnectionString = rawConnString;
-    // URL に sslmode が不足している場合は追加
-    if (!finalConnectionString.includes("sslmode=")) {
-        finalConnectionString += finalConnectionString.includes("?") ? "&sslmode=require" : "?sslmode=require";
-    }
 }
 
 if (!finalConnectionString) {
@@ -50,6 +56,7 @@ console.log(`✅ Ready to connect (URL length: ${finalConnectionString.length})`
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // Neonサーバーレスアダプターの初期化
+// connectionString プロパティを持つオブジェクトを明示的に渡す
 const pool = new Pool({
     connectionString: finalConnectionString,
     connectionTimeoutMillis: 30000,
@@ -60,7 +67,11 @@ const adapter = new PrismaNeon(pool as any);
 
 export const prisma =
     globalForPrisma.prisma ||
-    new PrismaClient({ adapter: adapter as any });
+    new PrismaClient({
+        adapter: adapter as any,
+        // Prisma 7 での接続不具合回避のため、アダプター使用時も URL を明示的に渡す
+        datasourceUrl: finalConnectionString
+    } as any);
 
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
