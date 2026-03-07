@@ -1,47 +1,75 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { Pool, neonConfig } from "@neondatabase/serverless";
-import ws from "ws";
 
-// Neon Serverless driver の設定
-if (typeof window === "undefined") {
-    // ESM/CJS混在環境では ws.default が実際のコンストラクタである場合があるため、補正する
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    neonConfig.webSocketConstructor = (ws as any).default || ws;
-}
+// Neon Serverless driver の設定: HTTP Fetch を使用 (WebSocketおよびそれに伴う型エラーを回避)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(neonConfig as any).poolQueryViaFetch = true;
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
 // --- データベース接続情報の取得と正規化 ---
-console.log("--- DB Connection Setup (Final Fix: ws constructor) ---");
+console.log("--- DB Connection Setup (Exhaustive & HTTP Mode) ---");
 
 const getSafeEnv = (key: string): string => {
-    const original = process.env[key];
-    if (typeof original !== "string") return "";
-    return original.trim().replace(/[\s\u3000]/g, "");
+    const val = process.env[key];
+    if (typeof val !== "string") return "";
+    return val.trim().replace(/[\s\u3000]/g, "");
 };
 
-// 1. 各種接続成分の抽出
-const host = getSafeEnv("DATABASEURL_POSTGRES_HOST") || getSafeEnv("DATABASEURL_PGHOST") || "ep-snowy-heart-ai9cc23s-pooler.c-4.us-east-1.aws.neon.tech";
-const user = getSafeEnv("DATABASEURL_POSTGRES_USER") || getSafeEnv("DATABASEURL_PGUSER") || "neondb_owner";
-const pass = getSafeEnv("DATABASEURL_POSTGRES_PASSWORD") || getSafeEnv("DATABASEURL_PGPASSWORD") || "npg_3Pe2ZjLTXsbW";
-const db = getSafeEnv("DATABASEURL_POSTGRES_DATABASE") || getSafeEnv("DATABASEURL_PGDATABASE") || "neondb";
+/**
+ * 接続情報の探索と構築
+ */
+const findDatabaseUrl = (): string => {
+    // 1. 有効な環境変数の探索 (優先順位順)
+    const envCandidates = [
+        "DATABASE_URL",
+        "POSTGRES_PRISMA_URL",
+        "POSTGRES_URL",
+        "POSTGRES_URL_NON_POOLING",
+        "DATABASEURL_POSTGRES_URL_NO_SSL",
+        "DATABASEURL_DATABASE_URL",
+        "DATABASEURL_POSTGRES_URL"
+    ];
 
-// 2. 最もシンプルな形式で接続情報を確定
-const connectionString = `postgresql://${user}:${pass}@${host}/${db}?sslmode=require`;
+    for (const key of envCandidates) {
+        const val = getSafeEnv(key);
+        if (val && val.startsWith("postgres") && !val.includes("localhost")) {
+            console.log(`🚀 Found valid URL in: ${key} `);
+            return val;
+        }
+    }
 
-// 3. 環境変数の同期 (最上流対策)
-process.env.DATABASE_URL = connectionString;
-process.env.PGHOST = host;
-process.env.PGUSER = user;
-process.env.PGPASSWORD = pass;
-process.env.PGDATABASE = db;
+    // 2. パラメータからの手動構築 (フォールバック)
+    const host = getSafeEnv("DATABASEURL_POSTGRES_HOST") || getSafeEnv("DATABASEURL_PGHOST") || getSafeEnv("PGHOST");
+    const user = getSafeEnv("DATABASEURL_POSTGRES_USER") || getSafeEnv("DATABASEURL_PGUSER") || getSafeEnv("PGUSER");
+    const pass = getSafeEnv("DATABASEURL_POSTGRES_PASSWORD") || getSafeEnv("DATABASEURL_PGPASSWORD") || getSafeEnv("PGPASSWORD");
+    const db = getSafeEnv("DATABASEURL_POSTGRES_DATABASE") || getSafeEnv("DATABASEURL_PGDATABASE") || getSafeEnv("PGDATABASE") || "neondb";
 
-console.log(`✅ DB URL Ready (Length: ${connectionString.length})`);
+    if (host && user && pass) {
+        console.log("🚀 Reconstructing URL from individual parameters.");
+        return `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${host}/${db}?sslmode=require`;
+    }
+
+    return "";
+};
+
+const finalUrl = findDatabaseUrl();
+
+if (!finalUrl) {
+    console.error("❌ CRITICAL: No DB connection info available in environment.");
+    console.log("Available Env Keys:", Object.keys(process.env).filter(k => k.includes("DATABASE") || k.includes("POSTGRES") || k.includes("URL")).join(", "));
+    throw new Error("DATABASE_CONFIG_NOT_FOUND");
+}
+
+console.log(`✅ Ready to connect (Length: ${finalUrl.length})`);
+
+// 3. プロセス環境変数を確定 (Prisma 7 内部用)
+process.env.DATABASE_URL = finalUrl;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Pool の初期化
-const pool = new Pool({ connectionString });
+// Pool 初期化 (HTTP Fetch モード)
+const pool = new Pool({ connectionString: finalUrl });
 const adapter = new PrismaNeon(pool as any);
 
 export const prisma =
