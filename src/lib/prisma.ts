@@ -1,15 +1,11 @@
 import { PrismaClient } from "@prisma/client";
-import { PrismaNeon } from "@prisma/adapter-neon";
-import { Pool, neonConfig } from "@neondatabase/serverless";
-
-// Neon Serverless driver の設定: HTTP Fetch を使用 (WebSocketおよびそれに伴う型エラーを回避)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-(neonConfig as any).poolQueryViaFetch = true;
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
 // --- データベース接続情報の取得と正規化 ---
-console.log("--- DB Connection Setup (Exhaustive & HTTP Mode) ---");
+console.log("--- DB Connection Setup (Standard PG Adapter) ---");
 
 const getSafeEnv = (key: string): string => {
     const val = process.env[key];
@@ -35,7 +31,7 @@ const findDatabaseUrl = (): string => {
     for (const key of envCandidates) {
         const val = getSafeEnv(key);
         if (val && val.startsWith("postgres") && !val.includes("localhost")) {
-            console.log(`🚀 Found valid URL in: ${key} `);
+            console.log(`🚀 Using connection info found in: ${key}`);
             return val;
         }
     }
@@ -57,26 +53,29 @@ const findDatabaseUrl = (): string => {
 const finalUrl = findDatabaseUrl();
 
 if (!finalUrl) {
-    console.error("❌ CRITICAL: No DB connection info available in environment.");
-    console.log("Available Env Keys:", Object.keys(process.env).filter(k => k.includes("DATABASE") || k.includes("POSTGRES") || k.includes("URL")).join(", "));
+    console.error("❌ CRITICAL: No DB connection info available.");
     throw new Error("DATABASE_CONFIG_NOT_FOUND");
 }
 
-console.log(`✅ Ready to connect (Length: ${finalUrl.length})`);
+console.log(`✅ DB Connection Setup Complete (Length: ${finalUrl.length})`);
 
-// 3. プロセス環境変数を確定 (Prisma 7 内部用)
+// 3. プロセス環境変数を確定 (Prisma Client 内部用)
 process.env.DATABASE_URL = finalUrl;
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-// Pool 初期化 (HTTP Fetch モード)
-const pool = new Pool({ connectionString: finalUrl });
-const adapter = new PrismaNeon(pool as any);
+// 4. 標準 PG ドライバによる Pool の初期化 (SSL 有効化)
+const pool = new Pool({
+    connectionString: finalUrl,
+    ssl: {
+        rejectUnauthorized: false // Cloud型DB (Neonなど) 用の一般的な設定
+    }
+});
+
+const adapter = new PrismaPg(pool);
 
 export const prisma =
     globalForPrisma.prisma ||
     new PrismaClient({
-        adapter: adapter as any
+        adapter: adapter
     });
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
