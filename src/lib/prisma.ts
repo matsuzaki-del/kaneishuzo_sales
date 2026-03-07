@@ -53,13 +53,12 @@ if (!finalConnectionString) {
 
 console.log(`✅ Ready to connect (URL length: ${finalConnectionString.length})`);
 
-// Prisma が内部的に環境変数を探す性質があるため、念のためプロセス変数にもセット
+// 3. 環境変数をプロセスレベルで上書き（Prisma Client が内部的に読み込むため）
 process.env.DATABASE_URL = finalConnectionString;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // Neonサーバーレスアダプターの初期化
-// connectionString プロパティを持つオブジェクトを明示的に渡す
 const pool = new Pool({
     connectionString: finalConnectionString,
     connectionTimeoutMillis: 30000,
@@ -71,13 +70,8 @@ const adapter = new PrismaNeon(pool as any);
 export const prisma =
     globalForPrisma.prisma ||
     new PrismaClient({
-        adapter: adapter as any,
-        datasources: {
-            db: {
-                url: finalConnectionString
-            }
-        }
-    } as any);
+        adapter: adapter as any
+    });
 
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
