@@ -4,56 +4,44 @@ import { Pool } from "@neondatabase/serverless";
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-// 接続文字列の候補リスト（ユーザー指定の NO_SSL を最優先）
+// 接続文字列候補（引き続き診断に利用）
 const envVars = [
     "DATABASEURL_POSTGRES_URL_NO_SSL",
     "DATABASE_URL",
     "POSTGRES_PRISMA_URL",
-    "POSTGRES_URL",
-    "DATABASEURL_DATABASE_URL",
-    "DATABASEURL_POSTGRES_PRISMA_URL",
-    "DATABASEURL_POSTGRES_URL",
-    "DATABASEURL_DATABASE_URL_UNPOOLED",
-    "DATABASEURL_POSTGRES_URL_NON_POOLING"
+    "DATABASEURL_POSTGRES_PRISMA_URL"
 ];
 
 let connectionString = "";
-let foundVar = "";
-
 for (const envVar of envVars) {
     const val = process.env[envVar];
     if (val && val.trim() !== "") {
-        // 値から不自然な空白（全角・半角）をすべて除去し、URLとして有効な形にする
-        let cleaned = val.replace(/\s/g, "");
-        
-        // 接続文字列が postgres(ql):// で始まっていることを確認
-        if (cleaned.startsWith("postgres")) {
-            // Neonなどのサーバーレス接続では SSL が必須な場合が多いため、
-            // sslmode=require が含まれていない場合は付与を検討（NO_SSL変数の場合はそのまま）
-            if (envVar !== "DATABASEURL_POSTGRES_URL_NO_SSL" && !cleaned.includes("sslmode=")) {
-                cleaned += cleaned.includes("?") ? "&sslmode=require" : "?sslmode=require";
-            }
-            connectionString = cleaned;
-            foundVar = envVar;
-            break;
-        }
+        connectionString = val.replace(/\s/g, "");
+        break;
     }
 }
 
-if (!connectionString) {
-    const checked = envVars.join(", ");
-    console.error(`❌ No valid database connection string found. Checked: ${checked}`);
-    throw new Error("DATABASE_CONNECTION_ERROR: Connection string is missing or invalid format.");
+// 個別パラメータの取得
+const dbConfig = {
+    host: process.env.DATABASEURL_POSTGRES_HOST || process.env.DATABASEURL_PGHOST || process.env.DATABASEURL_PGHOST_UNPOOLED,
+    user: process.env.DATABASEURL_POSTGRES_USER || process.env.DATABASEURL_PGUSER,
+    password: process.env.DATABASEURL_POSTGRES_PASSWORD || process.env.DATABASEURL_PGPASSWORD,
+    database: process.env.DATABASEURL_POSTGRES_DATABASE || process.env.DATABASEURL_PGDATABASE || "neondb",
+    port: 5432,
+};
+
+if (dbConfig.host && dbConfig.user && dbConfig.password) {
+    console.log(`✅ Using individual DB parameters. Host: ${dbConfig.host.substring(0, 10)}...`);
+} else if (connectionString) {
+    console.log("✅ Using connection string as fallback.");
 } else {
-    // セキュリティのため先頭部分のみログ出力
-    const masked = connectionString.substring(0, 20) + "...";
-    console.log(`✅ Using connection string from: ${foundVar} (${masked})`);
+    throw new Error("DATABASE_CONNECTION_ERROR: No connection parameters available.");
 }
 
 // Neonサーバーレスアダプターの初期化
-// オブジェクト形式ではなく直接文字列を渡すことで、pgドライバのパースエラーを回避
 const pool = new Pool({
-    connectionString,
+    ...(connectionString ? { connectionString } : dbConfig),
+    ssl: { rejectUnauthorized: false },
     connectionTimeoutMillis: 15000,
 });
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
