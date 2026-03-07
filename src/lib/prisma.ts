@@ -30,7 +30,7 @@ const connectionString =
 console.log(`🔎 Diagnostics: host=${!!host}, user=${!!user}, password=${!!password}, db=${!!database}, connString=${!!connectionString}`);
 
 // 3. Pool構成の作成
-let poolConfig: any;
+let poolConfig: Record<string, unknown>;
 
 if (host && user && password) {
     console.log("🚀 Using INDIVIDUAL parameters for DB connection.");
@@ -58,7 +58,7 @@ console.log("Final Pool Config Keys:", Object.keys(poolConfig).join(", "));
 console.log("--- DB Connection Setup End ---");
 
 // Neonサーバーレスアダプターの初期化
-const pool = new Pool(poolConfig);
+const pool = new Pool(poolConfig as any);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const adapter = new PrismaNeon(pool as any);
 
