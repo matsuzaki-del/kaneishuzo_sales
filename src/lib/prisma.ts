@@ -1,20 +1,33 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
-import { Pool } from "@neondatabase/serverless";
+import { Pool, neonConfig } from "@neondatabase/serverless";
+import ws from "ws";
+
+// Node.js 環境（Vercel Serverless 等）で WebSocket を有効にする
+neonConfig.webSocketConstructor = ws;
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-console.log("--- DB Connection (Neon Serverless Mode) ---");
+console.log("--- DB Connection (Neon Serverless + WebSocket Mode) ---");
 
-const connectionString =
-    process.env.POSTGRES_PRISMA_URL ||
+// 接続文字列の取得。プーラー（5432 + pgbouncer）用ではなく、直接接続用を優先する。
+const connectionString = (
+    process.env.POSTGRES_URL_NON_POOLING ||
+    process.env.DATABASE_URL ||
     process.env.POSTGRES_URL ||
-    process.env.DATABASE_URL;
+    ""
+).trim();
 
 if (!connectionString) {
-    console.error("❌ CRITICAL: No connection string found.");
+    console.error("❌ CRITICAL: No connection string found in environment variables.");
 } else {
-    console.log(`✅ Using Neon Serverless Adapter (URL Length: ${connectionString.length})`);
+    // 安全なデバッグ（パスワードを除いて表示）
+    try {
+        const url = new URL(connectionString);
+        console.log(`✅ Using Neon Adapter: host=${url.hostname}, protocol=${url.protocol}`);
+    } catch (e) {
+        console.log(`✅ Using Neon Adapter (URL Length: ${connectionString.length})`);
+    }
 }
 
 let client: PrismaClient;
@@ -27,6 +40,7 @@ if (connectionString) {
     const adapter = new PrismaNeon(neonPool as any);
     client = new PrismaClient({ adapter });
 } else {
+    // フォールバック（通常はここに来ないはず）
     client = new PrismaClient();
 }
 
