@@ -26,8 +26,8 @@ export async function POST() {
         }
 
         // 2. AI用のデータ文字列を作成（銘柄別）
-        const dataString = products.map((p) => {
-            const salesHistory = p.sales.map((s) => `${s.month}: ${s.quantity}`).join(", ");
+        const dataString = products.map((p: typeof products[0]) => {
+            const salesHistory = p.sales.map((s: typeof products[0]["sales"][0]) => `${s.month}: ${s.quantity}`).join(", ");
             return `銘柄: ${p.name} (ID: ${p.id})\nカテゴリー: ${p.category || "未分類"}\n実績: ${salesHistory || "なし"}`;
         }).join("\n\n");
 

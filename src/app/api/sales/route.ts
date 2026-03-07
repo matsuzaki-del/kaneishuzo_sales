@@ -22,7 +22,7 @@ export async function GET() {
         });
 
         // フロントエンドの AreaChart 形式に整形
-        const chartData = sales.map((s) => ({
+        const chartData = sales.map((s: { month: string; _sum: { quantity: number | null } }) => ({
             month: s.month,
             actual: s._sum.quantity || 0,
             forecast: null

@@ -30,7 +30,7 @@ export async function GET() {
             }
         });
 
-        const data = products.map((product) => {
+        const data = products.map((product: typeof products[0]) => {
             const current = product.sales[0]?.quantity || 0;
             const previous = product.sales[1]?.quantity || 0;
             const diff = previous > 0 ? ((current - previous) / previous) * 100 : 0;
