@@ -58,6 +58,7 @@ console.log("Final Pool Config Keys:", Object.keys(poolConfig).join(", "));
 console.log("--- DB Connection Setup End ---");
 
 // Neonサーバーレスアダプターの初期化
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const pool = new Pool(poolConfig as any);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const adapter = new PrismaNeon(pool as any);
