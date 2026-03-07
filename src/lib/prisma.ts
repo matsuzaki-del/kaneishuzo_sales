@@ -5,11 +5,17 @@ import { Pool } from "@neondatabase/serverless";
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
 // Vercel Postgres (Neon) の接続文字列
-// POSTGRES_PRISMA_URL (Pooling) または DATABASE_URL (Direct) を使用
-const connectionString = process.env.POSTGRES_PRISMA_URL || process.env.DATABASE_URL;
+// 提示された環境変数一覧に基づき、プレフィックス付きのものも含めて優先順位をつけて取得
+const connectionString =
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.DATABASEURL_POSTGRES_PRISMA_URL ||
+    process.env.DATABASE_URL ||
+    process.env.DATABASEURL_DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.DATABASEURL_POSTGRES_URL;
 
 if (!connectionString) {
-    console.error("❌ Database connection string is not set.");
+    console.error("❌ Database connection string is not set. Checked: POSTGRES_PRISMA_URL, DATABASEURL_POSTGRES_PRISMA_URL, DATABASE_URL, DATABASEURL_DATABASE_URL, POSTGRES_URL, DATABASEURL_POSTGRES_URL");
 }
 
 // Neonサーバーレスアダプターの初期化
