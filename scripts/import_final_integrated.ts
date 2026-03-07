@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../src/lib/prisma';
 import fs from 'fs';
 import iconv from 'iconv-lite';
 import { parse } from 'csv-parse/sync';
@@ -8,12 +8,6 @@ dotenv.config();
 
 const MASTER_PATH = "g:\\共有ドライブ\\【金井酒造店】営業・配送\\AI用_売掛金元帳\\学習用データ\\商品ﾏｽﾀﾘｽﾄ.csv";
 const URIKAKE_PATH = "g:\\共有ドライブ\\【金井酒造店】営業・配送\\AI用_売掛金元帳\\学習用データ\\2101-2602urikakekin_v2.csv";
-
-// 接続設定を最適化
-const prisma = new PrismaClient({
-    log: ['error'],
-    connectionTimeout: 60000,
-});
 
 async function main() {
     console.log('--- 統合インポート開始 (安定版) ---');

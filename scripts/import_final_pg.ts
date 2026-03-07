@@ -13,7 +13,10 @@ const connectionString = process.env.DATABASE_URL_UNPOOLED || process.env.DATABA
 
 async function main() {
     console.log('--- pg ドライバ直接使用による統合インポート開始 ---');
-    const client = new Client({ connectionString });
+    const client = new Client({
+        connectionString,
+        ssl: { rejectUnauthorized: false }
+    });
     await client.connect();
 
     try {
