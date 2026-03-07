@@ -23,19 +23,30 @@ let foundVar = "";
 for (const envVar of envVars) {
     const val = process.env[envVar];
     if (val && val.trim() !== "") {
-        connectionString = val.trim();
-        foundVar = envVar;
-        break;
+        // 値から不自然な空白（全角・半角）をすべて除去し、URLとして有効な形にする
+        let cleaned = val.replace(/\s/g, "");
+        
+        // 接続文字列が postgres(ql):// で始まっていることを確認
+        if (cleaned.startsWith("postgres")) {
+            // Neonなどのサーバーレス接続では SSL が必須な場合が多いため、
+            // sslmode=require が含まれていない場合は付与を検討（NO_SSL変数の場合はそのまま）
+            if (envVar !== "DATABASEURL_POSTGRES_URL_NO_SSL" && !cleaned.includes("sslmode=")) {
+                cleaned += cleaned.includes("?") ? "&sslmode=require" : "?sslmode=require";
+            }
+            connectionString = cleaned;
+            foundVar = envVar;
+            break;
+        }
     }
 }
 
 if (!connectionString) {
     const checked = envVars.join(", ");
-    console.error(`❌ No database connection string found. Checked: ${checked}`);
-    throw new Error("DATABASE_CONNECTION_ERROR: Connection string is missing.");
+    console.error(`❌ No valid database connection string found. Checked: ${checked}`);
+    throw new Error("DATABASE_CONNECTION_ERROR: Connection string is missing or invalid format.");
 } else {
     // セキュリティのため先頭部分のみログ出力
-    const masked = connectionString.substring(0, 15) + "...";
+    const masked = connectionString.substring(0, 20) + "...";
     console.log(`✅ Using connection string from: ${foundVar} (${masked})`);
 }
 
@@ -43,7 +54,7 @@ if (!connectionString) {
 // オブジェクト形式ではなく直接文字列を渡すことで、pgドライバのパースエラーを回避
 const pool = new Pool({
     connectionString,
-    connectionTimeoutMillis: 10000,
+    connectionTimeoutMillis: 15000,
 });
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const adapter = new PrismaNeon(pool as any);
