@@ -47,20 +47,21 @@ if (!finalConnectionString) {
 
 console.log(`✅ Ready to connect (URL length: ${finalConnectionString.length})`);
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 // Neonサーバーレスアダプターの初期化
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const pool = new Pool({
     connectionString: finalConnectionString,
     connectionTimeoutMillis: 30000,
     max: 1
 } as any);
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const adapter = new PrismaNeon(pool as any);
 
 export const prisma =
     globalForPrisma.prisma ||
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     new PrismaClient({ adapter: adapter as any });
+
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
