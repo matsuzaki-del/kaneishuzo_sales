@@ -1,16 +1,10 @@
 import { PrismaClient } from "@prisma/client";
-import { PrismaNeon } from "@prisma/adapter-neon";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { Pool as NeonPool, neonConfig } from "@neondatabase/serverless";
 import { Pool as PgPool } from "pg";
-import ws from "ws";
-
-// Node.js 環境で WebSocket を有効にする（Neon用）
-neonConfig.webSocketConstructor = ws;
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-console.log("--- DB Connection (Extreme Clean Mode) ---");
+console.log("--- DB Connection (Prisma v7 + adapter-pg Mode) ---");
 
 // 診断出力: 利用可能な環境変数のキー名を列挙（値は秘匿）
 const envKeys = Object.keys(process.env).filter(key =>
@@ -44,35 +38,29 @@ if (!connectionString) {
 
 function createPrismaClient(): PrismaClient {
     if (!connectionString) {
-        // Vercel デプロイ環境では必ず接続文字列が存在するはず
-        // ローカル開発時は .env ファイルに DATABASE_URL を設定してください
-        throw new Error(
-            "DB接続文字列が見つかりません。DATABASE_URL 環境変数を設定してください。\n" +
+        // Vercel のビルド時（データ収集フェーズ）は環境変数が未設定でトップレベル評価されることがあるため、
+        // ここではエラーを投げず、警告ログにとどめます。実際の接続時（ランタイム）に失敗します。
+        console.warn(
+            "⚠️ WARNING: DB接続文字列が見つかりません。ビルド時、または環境設定漏れの可能性があります。\n" +
             `検出された環境変数: ${envKeys.join(", ") || "なし"}`
         );
     }
 
-    const isNeon = connectionString.includes("neon.tech") || connectionString.includes("pooler.vercel-storage.com");
-    const isSupabase = connectionString.includes("supabase.com");
+    // Prisma v7 では Adapter が必須です。
+    // Node.js 環境（edge ではない）ため、安定した標準の pg モジュールを使用します。
+    // Neon Serverless (webSocket) のバンドル起因の接続情報喪失バグを回避します。
+    console.log("✅ Using Standard pg Pool (adapter-pg)");
 
-    if (isNeon) {
-        console.log("✅ Using Neon Serverless Adapter (Cleaned)");
-        const neonPool = new NeonPool({ connectionString });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const adapter = new PrismaNeon(neonPool as any);
-        return new PrismaClient({ adapter });
-    } else if (isSupabase) {
-        console.log("⚠️ Using Supabase (pg adapter)");
-        const pgPool = new PgPool({ connectionString });
-        const adapter = new PrismaPg(pgPool);
-        return new PrismaClient({ adapter });
-    } else {
-        // その他のPostgreSQL（neon.tech / supabase.com 以外）
-        console.log("ℹ️ Using pg adapter (standard PostgreSQL)");
-        const pgPool = new PgPool({ connectionString });
-        const adapter = new PrismaPg(pgPool);
-        return new PrismaClient({ adapter });
-    }
+    const pool = new PgPool({
+        connectionString,
+        // Prisma v7 でのプールの安定性確保
+        max: 10,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 5000,
+    });
+
+    const adapter = new PrismaPg(pool);
+    return new PrismaClient({ adapter });
 }
 
 export const prisma = globalForPrisma.prisma || createPrismaClient();
