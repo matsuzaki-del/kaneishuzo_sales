@@ -53,6 +53,9 @@ if (!finalConnectionString) {
 
 console.log(`✅ Ready to connect (URL length: ${finalConnectionString.length})`);
 
+// Prisma が内部的に環境変数を探す性質があるため、念のためプロセス変数にもセット
+process.env.DATABASE_URL = finalConnectionString;
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // Neonサーバーレスアダプターの初期化
@@ -69,8 +72,11 @@ export const prisma =
     globalForPrisma.prisma ||
     new PrismaClient({
         adapter: adapter as any,
-        // Prisma 7 での接続不具合回避のため、アダプター使用時も URL を明示的に渡す
-        datasourceUrl: finalConnectionString
+        datasources: {
+            db: {
+                url: finalConnectionString
+            }
+        }
     } as any);
 
 /* eslint-enable @typescript-eslint/no-explicit-any */
