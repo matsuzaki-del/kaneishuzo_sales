@@ -6,6 +6,7 @@ import ws from "ws";
 // Neon Serverless driver の設定
 if (typeof window === "undefined") {
     // ESM/CJS混在環境では ws.default が実際のコンストラクタである場合があるため、補正する
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     neonConfig.webSocketConstructor = (ws as any).default || ws;
 }
 
