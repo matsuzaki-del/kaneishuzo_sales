@@ -4,15 +4,15 @@ import { Pool } from "@neondatabase/serverless";
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-// 接続文字列の候補リスト
+// 接続文字列の候補リスト（標準的な名前を優先）
 const envVars = [
-    "POSTGRES_PRISMA_URL",
-    "DATABASEURL_POSTGRES_PRISMA_URL",
     "DATABASE_URL",
-    "DATABASEURL_DATABASE_URL",
-    "DATABASEURL_DATABASE_URL_UNPOOLED",
+    "POSTGRES_PRISMA_URL",
     "POSTGRES_URL",
+    "DATABASEURL_DATABASE_URL",
+    "DATABASEURL_POSTGRES_PRISMA_URL",
     "DATABASEURL_POSTGRES_URL",
+    "DATABASEURL_DATABASE_URL_UNPOOLED",
     "DATABASEURL_POSTGRES_URL_NON_POOLING"
 ];
 
@@ -20,23 +20,30 @@ let connectionString = "";
 let foundVar = "";
 
 for (const envVar of envVars) {
-    if (process.env[envVar]) {
-        connectionString = process.env[envVar] as string;
+    const val = process.env[envVar];
+    if (val && val.trim() !== "") {
+        connectionString = val.trim();
         foundVar = envVar;
         break;
     }
 }
 
 if (!connectionString) {
-    console.error(`❌ No database connection string found. Checked variables: ${envVars.join(", ")}`);
-    // 接続文字列がない場合は、デフォルト値（localhost）による pg の自動 fallback を防ぐため空文字を渡さない
-    throw new Error("DATABASE_CONNECTION_ERROR: Connection string is missing in environment variables.");
+    const checked = envVars.join(", ");
+    console.error(`❌ No database connection string found. Checked: ${checked}`);
+    throw new Error("DATABASE_CONNECTION_ERROR: Connection string is missing.");
 } else {
-    console.log(`✅ Database connection string found in environment variable: ${foundVar}`);
+    // セキュリティのため先頭部分のみログ出力
+    const masked = connectionString.substring(0, 15) + "...";
+    console.log(`✅ Using connection string from: ${foundVar} (${masked})`);
 }
 
 // Neonサーバーレスアダプターの初期化
-const pool = new Pool({ connectionString });
+// オブジェクト形式ではなく直接文字列を渡すことで、pgドライバのパースエラーを回避
+const pool = new Pool({
+    connectionString,
+    connectionTimeoutMillis: 10000,
+});
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const adapter = new PrismaNeon(pool as any);
 
