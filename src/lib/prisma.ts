@@ -4,8 +4,9 @@ import { Pool } from "@neondatabase/serverless";
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-// 接続文字列の候補リスト（標準的な名前を優先）
+// 接続文字列の候補リスト（ユーザー指定の NO_SSL を最優先）
 const envVars = [
+    "DATABASEURL_POSTGRES_URL_NO_SSL",
     "DATABASE_URL",
     "POSTGRES_PRISMA_URL",
     "POSTGRES_URL",
