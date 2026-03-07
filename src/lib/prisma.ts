@@ -4,7 +4,7 @@ import { Pool } from "pg";
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-console.log("--- DB Connection (Secure URL Mode) ---");
+console.log("--- DB Connection (Strict SSL Override Mode) ---");
 
 const getSafeEnv = (key: string): string => {
     const val = process.env[key];
@@ -13,9 +13,9 @@ const getSafeEnv = (key: string): string => {
 };
 
 /**
- * 接続文字列の正規化と補正
+ * 接続パラメーターの抽出と構築
  */
-const getFinalUrl = () => {
+const getDatabaseParams = () => {
     const candidates = ["POSTGRES_PRISMA_URL", "DATABASE_URL", "POSTGRES_URL"];
     let rawUrl = "";
 
@@ -23,67 +23,70 @@ const getFinalUrl = () => {
         const v = getSafeEnv(k);
         if (v && v.startsWith("postgres") && !v.includes("localhost")) {
             rawUrl = v;
-            console.log(`🚀 Found base configuration in: ${k}`);
+            console.log(`🚀 Base config source: ${k}`);
             break;
         }
     }
 
-    // URL が見つからない場合は個別パラメーターから構築を試みる
     if (!rawUrl) {
         const h = getSafeEnv("PGHOST") || getSafeEnv("DATABASEURL_PGHOST");
         const u = getSafeEnv("PGUSER") || getSafeEnv("DATABASEURL_PGUSER");
         const p = getSafeEnv("PGPASSWORD") || getSafeEnv("DATABASEURL_PGPASSWORD");
         const d = getSafeEnv("PGDATABASE") || getSafeEnv("DATABASEURL_PGDATABASE") || "postgres";
         if (h && u && p) {
-            console.log("🚀 Constructing URL from individual parameters.");
-            rawUrl = `postgresql://${u}:${p}@${h}/${d}?sslmode=require`;
+            rawUrl = `postgresql://${u}:${p}@${h}/${d}`;
         }
     }
 
     if (!rawUrl) return null;
 
     try {
-        // URL オブジェクトを使用してパースと再構成を行う (エスケープの自動化)
-        const urlObj = new URL(rawUrl);
+        const u = new URL(rawUrl);
+        let user = u.username;
+        const host = u.hostname;
 
-        // Neon 特有の補正 (user@endpoint-id)
-        if (urlObj.hostname.includes("neon.tech") && !urlObj.username.includes("@")) {
-            const endpointId = urlObj.hostname.split(".")[0].replace("-pooler", "");
-            console.log(`💡 Neon Fix: Adding @${endpointId} to user`);
-            urlObj.username = `${urlObj.username}@${endpointId}`;
+        // Neon 特有の補正
+        if (host.includes("neon.tech") && !user.includes("@")) {
+            const ep = host.split(".")[0].replace("-pooler", "");
+            console.log(`💡 Neon Augment: user@${ep}`);
+            user = `${user}@${ep}`;
         }
 
-        // SSL 強制
-        if (!urlObj.searchParams.has("sslmode")) {
-            urlObj.searchParams.set("sslmode", "require");
-        }
-
-        const final = urlObj.toString();
-        console.log(`✅ Connection info ready (Host: ${urlObj.hostname}, DB: ${urlObj.pathname.replace("/", "")})`);
-        return final;
+        // 接続情報を個別に返却 (Pool オブジェクト形式)
+        // connectionString を使うと SSL の優先順位で競合が発生しやすいため。
+        return {
+            user: decodeURIComponent(user),
+            host: host,
+            database: u.pathname.replace("/", ""),
+            password: decodeURIComponent(u.password),
+            port: parseInt(u.port || "5432"),
+            // 明示的な SSL 設定
+            ssl: {
+                rejectUnauthorized: false
+            }
+        };
     } catch (e) {
-        console.error("❌ URL normalized failed:", e);
-        return rawUrl;
+        console.error("❌ Failed to resolve DB params:", e);
+        return null;
     }
 };
 
-const finalUrl = getFinalUrl();
+const params = getDatabaseParams();
 
-if (!finalUrl) {
-    console.error("❌ CRITICAL: No connection string could be formed.");
+if (!params) {
+    console.error("❌ CRITICAL: Database connection information is missing.");
 } else {
-    // 環境変数を上書き (Prisma エンジンや他のパーツ用)
-    process.env.DATABASE_URL = finalUrl;
+    console.log(`✅ Connection params established (Host: ${params.host}, User: ${params.user.split('@')[0]}...)`);
+    // Prisma 内部/静的生成用の環境変数も更新
+    process.env.DATABASE_URL = `postgresql://${params.user}:${params.password}@${params.host}:${params.port}/${params.database}?sslmode=require`;
 }
 
 // 3. アダプターを使用した Prisma Client の初期化
 let client: PrismaClient;
 
-if (finalUrl) {
-    const pool = new Pool({
-        connectionString: finalUrl,
-        ssl: { rejectUnauthorized: false }
-    });
+if (params) {
+    // connectionString ではなく params オブジェクトを直接渡し、SSL オプションを確定させる
+    const pool = new Pool(params);
     const adapter = new PrismaPg(pool);
     client = new PrismaClient({ adapter });
 } else {
