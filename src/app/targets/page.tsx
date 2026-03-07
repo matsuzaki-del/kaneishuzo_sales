@@ -38,9 +38,9 @@ export default function TargetsPage() {
                 if (!res.ok) throw new Error("データの取得に失敗しました。");
                 const data = await res.json();
                 setTargetItems(data);
-            } catch (err: any) {
+            } catch (err: unknown) {
                 console.error(err);
-                setErrorMsg(err.message);
+                setErrorMsg(err instanceof Error ? err.message : String(err));
             } finally {
                 setLoading(false);
             }

@@ -8,13 +8,8 @@ import {
   History,
   BarChart3,
   Calendar,
-  Download,
   Zap,
-  TrendingUp,
-  CloudLightning,
   MessageSquare,
-  ArrowUpRight,
-  ChevronRight,
   AlertCircle
 } from 'lucide-react';
 import {
@@ -26,7 +21,6 @@ import {
   Tooltip,
   ResponsiveContainer
 } from 'recharts';
-import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
 // --- Types ---
@@ -89,10 +83,10 @@ export default function Dashboard() {
         const productsRes = await fetch('/api/products');
         if (productsRes.ok) {
           const productsData = await productsRes.json();
-          const sorted = productsData.sort((a: any, b: any) => b.currentMonthActual - a.currentMonthActual).slice(0, 3);
+          const sorted = (productsData as { name: string; currentMonthActual: number }[]).sort((a, b) => b.currentMonthActual - a.currentMonthActual).slice(0, 3);
           const max = sorted[0]?.currentMonthActual || 1;
           const colors = ['bg-gold-500', 'bg-aqua-500', 'bg-indigo-500'];
-          setTopProducts(sorted.map((p: any, i: number) => ({
+          setTopProducts(sorted.map((p, i) => ({
             name: p.name,
             progress: Math.round((p.currentMonthActual / max) * 100),
             color: colors[i]
@@ -113,7 +107,7 @@ export default function Dashboard() {
           }
         }
 
-        let newStats = [
+        const newStats = [
           { label: '次月・予測総需要', value: 'AI計算中...', change: 'Wait', color: 'border-gold-500/20' },
           { label: '最新月・売上実績', value: currentActual.toLocaleString() + ' 本', change: '確定値', color: 'border-aqua-500/20' },
           { label: '実績前月比', value: momChangeStr, change: momChangeStr.startsWith('+') ? '上昇傾向' : '下降傾向', color: 'border-white/10' },
@@ -122,14 +116,14 @@ export default function Dashboard() {
 
         // 予測データ取得
         let combinedData = salesData;
-        let fetchedAdvices = [];
+        let fetchedAdvices: { title: string; content: string; priority: 'HIGH' | 'MEDIUM' | 'INFO' }[] = [];
 
         try {
           const forecastRes = await fetch('/api/forecast', { method: 'POST' });
           if (forecastRes.ok) {
             const forecastData = await forecastRes.json();
             // forecastData.forecasts (銘柄別予測) の合計を全体予測とする
-            const totalForecast = forecastData.forecasts?.reduce((sum: number, f: any) => sum + (f.forecast || 0), 0) || 0;
+            const totalForecast = (forecastData.forecasts as { forecast: number }[] | undefined)?.reduce((sum, f) => sum + (f.forecast || 0), 0) || 0;
 
             if (totalForecast > 0) {
               combinedData = [...salesData, {
@@ -142,7 +136,7 @@ export default function Dashboard() {
             }
 
             // 銘柄別戦略をアドバイス欄に表示
-            fetchedAdvices = (forecastData.brandStrategies || []).slice(0, 5).map((s: any) => ({
+            fetchedAdvices = (forecastData.brandStrategies as { title: string; content: string; priority: 'HIGH' | 'MEDIUM' | 'INFO' }[] || []).slice(0, 5).map((s) => ({
               title: s.title,
               content: s.content,
               priority: s.priority
@@ -164,9 +158,9 @@ export default function Dashboard() {
         setAdvices(fetchedAdvices);
         setStats(newStats);
 
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error("Dashboard Data Error:", error);
-        setErrorMsg(error.message || "エラーが発生しました。");
+        setErrorMsg(error instanceof Error ? error.message : "エラーが発生しました。");
       } finally {
         setLoading(false);
       }

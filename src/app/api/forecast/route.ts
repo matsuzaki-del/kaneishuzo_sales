@@ -12,7 +12,7 @@ const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 export async function POST() {
     try {
         // 1. 全銘柄と過去の実績を取得
-        const products = await (prisma.product as any).findMany({
+        const products = await prisma.product.findMany({
             include: {
                 sales: {
                     orderBy: { month: 'asc' },
@@ -26,8 +26,8 @@ export async function POST() {
         }
 
         // 2. AI用のデータ文字列を作成（銘柄別）
-        const dataString = products.map((p: any) => {
-            const salesHistory = p.sales.map((s: any) => `${s.month}: ${s.quantity}`).join(", ");
+        const dataString = products.map((p) => {
+            const salesHistory = p.sales.map((s) => `${s.month}: ${s.quantity}`).join(", ");
             return `銘柄: ${p.name} (ID: ${p.id})\nカテゴリー: ${p.category || "未分類"}\n実績: ${salesHistory || "なし"}`;
         }).join("\n\n");
 
@@ -75,7 +75,7 @@ ${dataString}
         if (aiResponse.forecasts && Array.isArray(aiResponse.forecasts)) {
             for (const f of aiResponse.forecasts) {
                 if (f.productId && f.forecast) {
-                    await (prisma.forecast as any).upsert({
+                    await prisma.forecast.upsert({
                         where: { month_productId: { month: nextMonth, productId: f.productId } },
                         update: { quantity: f.forecast },
                         create: { month: nextMonth, productId: f.productId, quantity: f.forecast }
@@ -116,12 +116,12 @@ ${dataString}
 
         if (allStrategies.length > 0) {
             // 当月の既存AI生成施策をクリア
-            await (prisma.salesStrategy as any).deleteMany({
+            await prisma.salesStrategy.deleteMany({
                 where: { month: currentMonth, category: "AI_GENERATED" }
             });
 
             // まとめて作成
-            await (prisma.salesStrategy as any).createMany({
+            await prisma.salesStrategy.createMany({
                 data: allStrategies
             });
         }

@@ -11,7 +11,7 @@ export async function GET() {
         await prisma.$connect();
 
         // 全商品の月別合計売上を取得
-        const sales = await (prisma.monthlySales as any).groupBy({
+        const sales = await prisma.monthlySales.groupBy({
             by: ['month'],
             _sum: {
                 quantity: true
@@ -22,19 +22,19 @@ export async function GET() {
         });
 
         // フロントエンドの AreaChart 形式に整形
-        const chartData = sales.map((s: any) => ({
+        const chartData = sales.map((s) => ({
             month: s.month,
             actual: s._sum.quantity || 0,
             forecast: null
         }));
 
         return NextResponse.json(chartData);
-    } catch (error: any) {
+    } catch (error) {
         console.error("Failed to fetch sales data:", error);
         return NextResponse.json({
             error: "Database Connection Error",
-            details: error.message,
-            code: error.code
+            details: error instanceof Error ? error.message : String(error),
+            code: (error as { code?: string })?.code
         }, { status: 500 });
     }
 }

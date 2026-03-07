@@ -14,10 +14,12 @@ if (!connectionString) {
 
 // Neonサーバーレスアダプターの初期化
 const pool = new Pool({ connectionString });
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const adapter = new PrismaNeon(pool as any);
 
 export const prisma =
     globalForPrisma.prisma ||
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     new PrismaClient({ adapter: adapter as any });
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
