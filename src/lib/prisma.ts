@@ -2,7 +2,7 @@ import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-console.log("--- DB Connection Diagnostics (Final Strategy) ---");
+console.log("--- DB Connection Diagnostics (Ultimate Strategy) ---");
 
 const getSafeEnv = (key: string): string => {
     const val = process.env[key];
@@ -71,24 +71,15 @@ if (!finalUrl) {
     console.error("❌ CRITICAL: No database connection info found.");
 } else {
     console.log(`✅ Connection info established (Length: ${finalUrl.length})`);
-    // Prisma エンジンが確実に拾えるように環境変数を更新
+    // Prisma エンジンが確実に拾えるように最優先で環境変数を上書き
     process.env.DATABASE_URL = finalUrl;
 }
 
-// 3. Prisma Client の初期化 (ESLint エラー回避のため型定義をバイパス)
-/* eslint-disable @typescript-eslint/no-explicit-any */
-const prismaOptions: any = {};
-if (finalUrl) {
-    prismaOptions.datasources = {
-        db: {
-            url: finalUrl
-        }
-    };
-}
-
+// 3. Prisma Client の初期化
+// コンストラクタに引数を渡すと型エラーやバージョンの相性問題が出やすいため、
+// process.env.DATABASE_URL を設定した上で引数なしで呼ぶのが最も確実。
 export const prisma =
     globalForPrisma.prisma ||
-    new PrismaClient(prismaOptions);
-/* eslint-enable @typescript-eslint/no-explicit-any */
+    new PrismaClient();
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
