@@ -10,45 +10,58 @@ neonConfig.webSocketConstructor = ws;
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-console.log("--- DB Connection (Multi-Adapter Mode) ---");
+/**
+ * 環境変数から非表示文字や予期しない空白を削除する
+ */
+const cleanEnvVar = (val: string | undefined): string => {
+    if (!val) return "";
+    // eslint-disable-next-line no-control-regex
+    return val.replace(/[\u0000-\u001F\u007F-\u009F\s]/g, "").trim();
+};
 
-// Vercel Postgres (Neon) の環境変数を最優先する
-const connectionString = (
-  process.env.POSTGRES_URL_NON_POOLING ||
-  process.env.POSTGRES_PRISMA_URL ||
-  process.env.POSTGRES_URL ||
-  process.env.DATABASE_URL ||
-  ""
-).trim();
+console.log("--- DB Connection (Extreme Clean Mode) ---");
+
+// Vercel Postgres (Neon) を強制優先し、Supabase を完全に後回しにする
+const postgresUrlNonPooling = cleanEnvVar(process.env.POSTGRES_URL_NON_POOLING);
+const postgresPrismaUrl = cleanEnvVar(process.env.POSTGRES_PRISMA_URL);
+const postgresUrl = cleanEnvVar(process.env.POSTGRES_URL);
+const databaseUrl = cleanEnvVar(process.env.DATABASE_URL);
+
+// 最終的な接続先決定
+const connectionString =
+    postgresUrlNonPooling ||
+    postgresPrismaUrl ||
+    postgresUrl ||
+    databaseUrl;
 
 if (!connectionString) {
-  console.error("❌ CRITICAL: No connection string found.");
+    console.error("❌ CRITICAL: No connection string found.");
 }
 
 let client: PrismaClient;
 
 if (connectionString) {
-  const isNeon = connectionString.includes("neon.tech");
-  const isSupabase = connectionString.includes("supabase.com");
+    const isNeon = connectionString.includes("neon.tech") || connectionString.includes("pooler.vercel-storage.com");
+    const isSupabase = connectionString.includes("supabase.com");
 
-  if (isNeon) {
-    console.log("✅ Using Neon Serverless Adapter");
-    const neonPool = new NeonPool({ connectionString });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const adapter = new PrismaNeon(neonPool as any);
-    client = new PrismaClient({ adapter });
-  } else if (isSupabase) {
-    console.log("⚠️ Using Supabase (pg adapter) - Host detected as supabase.com");
-    const pgPool = new PgPool({ connectionString });
-    const adapter = new PrismaPg(pgPool);
-    client = new PrismaClient({ adapter });
-  } else {
-    // その他のデータベース（標準の PrismaClient 挙動に任せる）
-    console.log("ℹ️ Using Standard Prisma Client (Legacy/Other)");
-    client = new PrismaClient();
-  }
+    if (isNeon) {
+        console.log("✅ Using Neon Serverless Adapter (Cleaned)");
+        const neonPool = new NeonPool({ connectionString });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const adapter = new PrismaNeon(neonPool as any);
+        client = new PrismaClient({ adapter });
+    } else if (isSupabase) {
+        // Supabase の場合は PrismaPg を使用（PGBouncer パラメータを考慮）
+        console.log("⚠️ Using Supabase (pg adapter) - Host: supabase.com (Cleaned)");
+        const pgPool = new PgPool({ connectionString });
+        const adapter = new PrismaPg(pgPool);
+        client = new PrismaClient({ adapter });
+    } else {
+        console.log("ℹ️ Using Standard Prisma Client (Cleaned)");
+        client = new PrismaClient();
+    }
 } else {
-  client = new PrismaClient();
+    client = new PrismaClient();
 }
 
 export const prisma = globalForPrisma.prisma || client;
