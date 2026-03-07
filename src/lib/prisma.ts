@@ -5,18 +5,18 @@ import ws from "ws";
 
 // Neon Serverless driver の設定
 if (typeof window === "undefined") {
-    neonConfig.webSocketConstructor = ws;
+    // ESM/CJS混在環境では ws.default が実際のコンストラクタである場合があるため、補正する
+    neonConfig.webSocketConstructor = (ws as any).default || ws;
 }
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
 // --- データベース接続情報の取得と正規化 ---
-console.log("--- DB Connection Setup (Standard) ---");
+console.log("--- DB Connection Setup (Final Fix: ws constructor) ---");
 
 const getSafeEnv = (key: string): string => {
     const original = process.env[key];
     if (typeof original !== "string") return "";
-    // 全角スペースも含む空白を完全に除去
     return original.trim().replace(/[\s\u3000]/g, "");
 };
 
@@ -26,20 +26,20 @@ const user = getSafeEnv("DATABASEURL_POSTGRES_USER") || getSafeEnv("DATABASEURL_
 const pass = getSafeEnv("DATABASEURL_POSTGRES_PASSWORD") || getSafeEnv("DATABASEURL_PGPASSWORD") || "npg_3Pe2ZjLTXsbW";
 const db = getSafeEnv("DATABASEURL_POSTGRES_DATABASE") || getSafeEnv("DATABASEURL_PGDATABASE") || "neondb";
 
-// 2. 接続情報の決定 (パラメータから直接組み立てるのが最も安全)
+// 2. 最もシンプルな形式で接続情報を確定
 const connectionString = `postgresql://${user}:${pass}@${host}/${db}?sslmode=require`;
 
-// 3. 環境変数の同期
+// 3. 環境変数の同期 (最上流対策)
 process.env.DATABASE_URL = connectionString;
 process.env.PGHOST = host;
 process.env.PGUSER = user;
 process.env.PGPASSWORD = pass;
 process.env.PGDATABASE = db;
 
-console.log(`✅ DB URL length: ${connectionString.length}`);
+console.log(`✅ DB URL Ready (Length: ${connectionString.length})`);
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// 最もシンプルな Pool 初期化
+// Pool の初期化
 const pool = new Pool({ connectionString });
 const adapter = new PrismaNeon(pool as any);
 
