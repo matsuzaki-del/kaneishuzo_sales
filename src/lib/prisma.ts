@@ -27,20 +27,18 @@ const envKeys = Object.keys(process.env).filter(key =>
 );
 console.log(`🔍 Available DB Env Vars: ${envKeys.join(", ")}`);
 
-// Vercel Postgres (Neon) を最優先する
-const postgresUrlNonPooling = cleanEnvVar(process.env.POSTGRES_URL_NON_POOLING);
-const postgresPrismaUrl = cleanEnvVar(process.env.POSTGRES_PRISMA_URL);
-const postgresUrl = cleanEnvVar(process.env.POSTGRES_URL);
-const neonDatabaseUrl = cleanEnvVar(process.env.NEON_DATABASE_URL);
-const databaseUrl = cleanEnvVar(process.env.DATABASE_URL);
-
-// 最終的な接続先決定
-const connectionString =
-    postgresUrlNonPooling ||
-    postgresPrismaUrl ||
-    postgresUrl ||
-    neonDatabaseUrl ||
-    databaseUrl;
+// Vercel Postgres (Neon) を最優先する。診断結果に基づき、特殊なプレフィックス付きも対応。
+const connectionString = (
+    process.env.DATABASEURL_POSTGRES_URL_NON_POOLING ||
+    process.env.DATABASEURL_POSTGRES_PRISMA_URL ||
+    process.env.DATABASEURL_POSTGRES_URL ||
+    process.env.POSTGRES_URL_NON_POOLING ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.NEON_DATABASE_URL ||
+    process.env.DATABASE_URL ||
+    ""
+).trim();
 
 if (!connectionString) {
     console.error("❌ CRITICAL: No connection string found.");
