@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
-import { pool } from "@neondatabase/serverless";
+import { Pool } from "@neondatabase/serverless";
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
@@ -21,7 +21,7 @@ let client: PrismaClient;
 
 if (connectionString) {
     // Neon 公式のサーバーレスドライバを使用
-    const neonPool = new pool({ connectionString });
+    const neonPool = new Pool({ connectionString });
     const adapter = new PrismaNeon(neonPool);
     client = new PrismaClient({ adapter });
 } else {
