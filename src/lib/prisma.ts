@@ -23,6 +23,7 @@ if (connectionString) {
     // Neon 公式のサーバーレスドライバを使用
     const neonPool = new Pool({ connectionString });
     // 型不整合を回避するために any キャストを使用
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const adapter = new PrismaNeon(neonPool as any);
     client = new PrismaClient({ adapter });
 } else {
