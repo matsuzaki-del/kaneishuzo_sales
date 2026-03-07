@@ -10,15 +10,6 @@ neonConfig.webSocketConstructor = ws;
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-/**
- * 環境変数から非表示文字や予期しない空白を削除する
- */
-const cleanEnvVar = (val: string | undefined): string => {
-    if (!val) return "";
-    // eslint-disable-next-line no-control-regex
-    return val.replace(/[\u0000-\u001F\u007F-\u009F\s]/g, "").trim();
-};
-
 console.log("--- DB Connection (Extreme Clean Mode) ---");
 
 // 診断出力: 利用可能な環境変数のキー名を列挙（値は秘匿）
@@ -28,7 +19,7 @@ const envKeys = Object.keys(process.env).filter(key =>
 console.log(`🔍 Available DB Env Vars: ${envKeys.join(", ")}`);
 
 // Vercel Postgres (Neon) を最優先する。診断結果に基づき、特殊なプレフィックス付きも対応。
-const connectionString = (
+const rawConnectionString = (
     process.env.DATABASEURL_POSTGRES_URL_NON_POOLING ||
     process.env.DATABASEURL_POSTGRES_PRISMA_URL ||
     process.env.DATABASEURL_POSTGRES_URL ||
@@ -38,7 +29,11 @@ const connectionString = (
     process.env.NEON_DATABASE_URL ||
     process.env.DATABASE_URL ||
     ""
-).trim();
+);
+
+// 環境変数から非表示文字や予期しない空白を削除する
+// eslint-disable-next-line no-control-regex
+const connectionString = rawConnectionString.replace(/[\u0000-\u001F\u007F-\u009F\s]/g, "").trim();
 
 if (!connectionString) {
     console.error("❌ CRITICAL: No connection string found.");
