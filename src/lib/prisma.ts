@@ -5,21 +5,18 @@ import { Pool } from "@neondatabase/serverless";
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
 // --- データベース接続情報の取得と正規化 ---
-console.log("--- DB Connection Setup ---");
+console.log("--- DB Connection Setup (Manual Reconstruct) ---");
 
-/**
- * 環境変数の値を安全に（空白を除去して）取得する
- */
 const getEnv = (key: string) => (process.env[key] || "").trim().replace(/\s/g, "");
 
-// 1. 個別パラメータの取得（Vercelの DATABASEURL_ プレフィックスを優先）
+// 1. 各種接続成分の抽出
 const host = getEnv("DATABASEURL_POSTGRES_HOST") || getEnv("DATABASEURL_PGHOST") || getEnv("DATABASEURL_PGHOST_UNPOOLED");
 const user = getEnv("DATABASEURL_POSTGRES_USER") || getEnv("DATABASEURL_PGUSER");
 const password = getEnv("DATABASEURL_POSTGRES_PASSWORD") || getEnv("DATABASEURL_PGPASSWORD");
-const database = getEnv("DATABASEURL_POSTGRES_DATABASE") || getEnv("DATABASEURL_PGDATABASE") || "neondb";
+const dbName = getEnv("DATABASEURL_POSTGRES_DATABASE") || getEnv("DATABASEURL_PGDATABASE") || "neondb";
 
-// 2. 接続文字列の取得
-const connectionString =
+// 2. 既存の接続文字列候補
+const rawConnString =
     getEnv("DATABASEURL_POSTGRES_URL_NO_SSL") ||
     getEnv("DATABASE_URL") ||
     getEnv("POSTGRES_PRISMA_URL") ||
@@ -27,39 +24,37 @@ const connectionString =
     getEnv("POSTGRES_URL") ||
     getEnv("DATABASEURL_POSTGRES_URL");
 
-console.log(`🔎 Diagnostics: host=${!!host}, user=${!!user}, password=${!!password}, db=${!!database}, connString=${!!connectionString}`);
+let finalConnectionString = "";
 
-// 3. Pool構成の作成
-let poolConfig: Record<string, unknown>;
-
+// 3. 接続情報の優先度決定：個別パラメータが揃っていれば手動構築を最優先とする（パースミスを防ぐため）
 if (host && user && password) {
-    console.log("🚀 Using INDIVIDUAL parameters for DB connection.");
-    poolConfig = {
-        host,
-        user,
-        password,
-        database,
-        port: 5432,
-    };
-} else if (connectionString) {
-    console.log("🚀 Using CONNECTION STRING for DB connection.");
-    poolConfig = { connectionString };
-} else {
-    console.error("❌ CRITICAL: No DB connection info found in environment variables.");
+    console.log("🚀 Reconstructing connection string from individual parameters.");
+    // パスワードなどの特殊文字を考慮した URL 構築（簡易版。必要なら encodeURIComponent を検討）
+    finalConnectionString = `postgresql://${user}:${password}@${host}/${dbName}?sslmode=require`;
+} else if (rawConnString) {
+    console.log("🚀 Using existing connection string.");
+    finalConnectionString = rawConnString;
+    // URL に sslmode が不足している場合は追加
+    if (!finalConnectionString.includes("sslmode=")) {
+        finalConnectionString += finalConnectionString.includes("?") ? "&sslmode=require" : "?sslmode=require";
+    }
+}
+
+if (!finalConnectionString) {
+    console.error("❌ CRITICAL: No DB connection info available.");
     throw new Error("DATABASE_CONNECTION_ERROR: Connection info missing.");
 }
 
-// 共通設定
-poolConfig.ssl = { rejectUnauthorized: false };
-poolConfig.connectionTimeoutMillis = 20000;
-poolConfig.max = 1; // サーバーレス環境では接続数を制限
-
-console.log("Final Pool Config Keys:", Object.keys(poolConfig).join(", "));
-console.log("--- DB Connection Setup End ---");
+console.log(`✅ Ready to connect (URL length: ${finalConnectionString.length})`);
 
 // Neonサーバーレスアダプターの初期化
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const pool = new Pool(poolConfig as any);
+const pool = new Pool({
+    connectionString: finalConnectionString,
+    connectionTimeoutMillis: 30000,
+    max: 1
+} as any);
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const adapter = new PrismaNeon(pool as any);
 
