@@ -1,0 +1,21 @@
+--- Vercel Logs (2026-03-07 11:55) ---
+Failed to fetch sales data: Error: No database host or connection string was set, and key parameters have default values (host: localhost, user: undefined, db: undefined, password: null). Is an environment variable missing? Alternatively, if you intended to connect with these parameters, please set the host to 'localhost' explicitly.
+    at bB.connect (.next/server/chunks/169.js:29:6058)
+    at bE.newClient (.next/server/chunks/169.js:13:31238)
+    at bE.connect (.next/server/chunks/169.js:13:30843)
+    at bE.query (.next/server/chunks/169.js:13:33321)
+    at bE.query (.next/server/chunks/169.js:32:3466)
+    at aq.performIO (.next/server/chunks/169.js:33:8901)
+    at aq.queryRaw (.next/server/chunks/169.js:33:7093)
+{ clientVersion: '7.4.2' }
+
+--- Note ---
+The above error suggests that the 'pg' driver is not receiving any connection parameters (host, user, etc.) from our Prisma/Neon setup, falling back to localhost.
+Current setup tries to use:
+- DATABASEURL_POSTGRES_HOST
+- DATABASEURL_POSTGRES_USER
+- DATABASEURL_POSTGRES_PASSWORD
+- DATABASEURL_POSTGRES_DATABASE
+- or various DATABASE_URL / POSTGRES_URL candidates.
+- Invisible whitespaces are being stripped.
+- Explicit Host/User/Pass objects are being passed to Pool.
