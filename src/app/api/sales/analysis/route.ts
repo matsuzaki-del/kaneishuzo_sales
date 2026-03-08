@@ -37,6 +37,8 @@ export async function GET() {
         const yearlyMap = new Map<string, { totalQty: number; totalAmount: number; categoriesQty: Record<string, number>; categoriesAmount: Record<string, number>; customersQty: Record<string, number>; customersAmount: Record<string, number> }>();
 
         let latestMonth = "";
+        let grandTotalQty = 0;
+        let grandTotalAmount = 0;
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         salesRecords.forEach((record: any) => {
@@ -59,7 +61,11 @@ export async function GET() {
 
             const y = m.substring(0, 4);
             const qty = record.quantity || 0;
-            const amount = record.salesAmount || 0;
+            // salesAmountがNULLまたは0の場合に、単価 * 数量で補完する（集計の正確性向上）
+            let amount = record.salesAmount || 0;
+            if (amount === 0 && record.unitPrice && record.quantity) {
+                amount = record.unitPrice * record.quantity;
+            }
             const cat = record.product?.category || "未分類";
             const customerName = record.customer?.name || "不明な取引先";
 
@@ -74,6 +80,10 @@ export async function GET() {
             mData.categoriesAmount[cat] = (mData.categoriesAmount[cat] || 0) + amount;
             mData.customersQty[customerName] = (mData.customersQty[customerName] || 0) + qty;
             mData.customersAmount[customerName] = (mData.customersAmount[customerName] || 0) + amount;
+
+            // 累計
+            grandTotalQty += qty;
+            grandTotalAmount += amount;
 
             // 年次集計
             if (!yearlyMap.has(y)) {
@@ -155,7 +165,9 @@ export async function GET() {
                 momChange,
                 yoyChange,
                 momChangeAmount,
-                yoyChangeAmount
+                yoyChangeAmount,
+                grandTotal: grandTotalQty,
+                grandTotalAmount: grandTotalAmount
             }
         });
 

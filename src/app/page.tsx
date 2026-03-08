@@ -10,7 +10,8 @@ import {
   Zap,
   AlertCircle,
   TrendingUp,
-  TrendingDown
+  TrendingDown,
+  RefreshCw
 } from 'lucide-react';
 import {
   BarChart,
@@ -84,29 +85,39 @@ export default function Dashboard() {
   const [advices, setAdvices] = useState<NewAdvice>({ weeklyStrategy: null, monthlyProduction: [], weeklyInventory: [] });
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [grandTotal, setGrandTotal] = useState<{ qty: number, amount: number } | null>(null);
 
   // 1. 初回基本データロード
-  useEffect(() => {
-    const fetchBaseData = async () => {
-      try {
-        setLoading(true);
-        setErrorMsg(null);
-        const analysisRes = await fetch('/api/sales/analysis');
-        if (!analysisRes.ok) throw new Error("売上分析データの取得に失敗しました。");
-        const analysisData = await analysisRes.json();
-        const monthlySeries = analysisData.monthly || [];
-        // 直近48ヶ月分を保持（タイムマシン表示用にある程度持っておく）
-        setMonthlyData(monthlySeries.slice(-48));
-        setYearlyData(analysisData.yearly || []);
-      } catch (error: unknown) {
-        console.error("Dashboard Data Error:", error);
-        setErrorMsg(error instanceof Error ? error.message : "エラーが発生しました。");
-      } finally {
-        setLoading(false);
+  const fetchBaseData = React.useCallback(async () => {
+    try {
+      setLoading(true);
+      setErrorMsg(null);
+      // ブラウザ・Nextキャッシュをバイパスして最新のDBを強制集計
+      const analysisRes = await fetch('/api/sales/analysis', { cache: 'no-store' });
+      if (!analysisRes.ok) throw new Error("売上分析データの取得に失敗しました。");
+      const analysisData = await analysisRes.json();
+      const monthlySeries = analysisData.monthly || [];
+      // 直近48ヶ月分を保持（タイムマシン表示用にある程度持っておく）
+      setMonthlyData(monthlySeries.slice(-48));
+      setYearlyData(analysisData.yearly || []);
+
+      if (analysisData.kpi) {
+        setGrandTotal({
+          qty: analysisData.kpi.grandTotal || 0,
+          amount: analysisData.kpi.grandTotalAmount || 0
+        });
       }
-    };
-    fetchBaseData();
+    } catch (error: unknown) {
+      console.error("Dashboard Data Error:", error);
+      setErrorMsg(error instanceof Error ? error.message : "エラーが発生しました。");
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchBaseData();
+  }, [fetchBaseData]);
 
   // --- 派生データの計算 ---
   const availablePeriods = useMemo(() => {
@@ -283,6 +294,17 @@ export default function Dashboard() {
             <p className="text-slate-400">最新の実績データに基づく多角的な売上分析</p>
           </div>
           <div className="flex gap-4 items-center">
+            {/* 再集計ボタン */}
+            <button
+              onClick={fetchBaseData}
+              disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 hover:text-white transition text-sm font-medium border border-slate-700 disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+              再集計
+            </button>
+            <div className="w-px h-6 bg-slate-700 mx-1"></div>
+
             {/* 表示期間セレクト */}
             <div className="flex items-center gap-2">
               <select
@@ -331,7 +353,7 @@ export default function Dashboard() {
         </header>
 
         {/* KPI Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6 mb-8">
           <div className="p-6 rounded-3xl bg-navy-900/40 backdrop-blur-md border border-gold-500/20">
             <p className="text-sm font-medium text-slate-400 mb-2">表示{viewMode === 'month' ? '月' : '年'}</p>
             <div className="flex items-end justify-between">
@@ -344,13 +366,20 @@ export default function Dashboard() {
 
           <div className="p-6 rounded-3xl bg-navy-900/40 backdrop-blur-md border border-aqua-500/20">
             <p className="text-sm font-medium text-slate-400 mb-2">該当期間 売上実績</p>
-            <div className="flex items-end justify-between">
-              <h3 className="text-2xl font-bold text-white">
-                {metricMode === 'amount' && '¥'}
-                {activeRecord ? (metricMode === 'quantity' ? activeRecord.actual.toLocaleString() : (activeRecord.actualAmount || 0).toLocaleString()) : "---"}
-                <span className="text-base text-slate-400 font-normal ml-1">{metricMode === 'quantity' ? '本' : ''}</span>
-              </h3>
-              <span className="text-xs font-bold px-2 py-1 rounded-full text-aqua-400 bg-aqua-400/10">確定値</span>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-end justify-between">
+                <h3 className="text-2xl font-bold text-white">
+                  {metricMode === 'amount' && '¥'}
+                  {activeRecord ? (metricMode === 'quantity' ? activeRecord.actual.toLocaleString() : (activeRecord.actualAmount || 0).toLocaleString()) : "---"}
+                  <span className="text-base text-slate-400 font-normal ml-1">{metricMode === 'quantity' ? '本' : ''}</span>
+                </h3>
+                <span className="text-xs font-bold px-2 py-1 rounded-full text-aqua-400 bg-aqua-400/10">確定値</span>
+              </div>
+              <div className="text-sm text-aqua-200/80 font-mono">
+                {metricMode === 'quantity'
+                  ? `合計金額: ¥${activeRecord ? (activeRecord.actualAmount || 0).toLocaleString() : "---"}`
+                  : `販売本数: ${activeRecord ? activeRecord.actual.toLocaleString() : "---"} 本`}
+              </div>
             </div>
           </div>
 
@@ -379,6 +408,21 @@ export default function Dashboard() {
                   </>
                 ) : "---"}
               </h3>
+            </div>
+          </div>
+
+          <div className="p-6 rounded-3xl bg-navy-900/40 backdrop-blur-md border border-gold-500/10">
+            <p className="text-sm font-medium text-gold-400/80 mb-2">累計売上合計 (Accumulated)</p>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-end justify-between">
+                <h3 className="text-2xl font-bold text-white">
+                  ¥{grandTotal ? grandTotal.amount.toLocaleString() : "---"}
+                </h3>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-gold-400 bg-gold-400/10 uppercase">Total</span>
+              </div>
+              <div className="text-sm text-gold-200/60 font-mono">
+                累計本数: {grandTotal ? grandTotal.qty.toLocaleString() : "---"} 本
+              </div>
             </div>
           </div>
         </div>
