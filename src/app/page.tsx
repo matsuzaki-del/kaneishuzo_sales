@@ -36,19 +36,14 @@ interface AnalysisRecord {
   customersAmount: Record<string, number>;
 }
 
-interface KPI {
-  latestMonth: string | null;
-  currentSales: number;
-  currentAmount: number;
-  momChange: number;
-  yoyChange: number;
-  momChangeAmount: number;
-  yoyChangeAmount: number;
-}
-
 interface NewAdvice {
   weeklyStrategy: { title: string, content: string } | null;
-  monthlyProduction: { name: string, target: number, reasoning: string }[];
+  monthlyProduction: {
+    name: string;
+    target: number;
+    reasoning: string;
+    weeklyGuideline?: { week: number; percentage: number; amount: number; note: string }[];
+  }[];
   weeklyInventory: { name: string, required: number, reasoning: string }[];
 }
 
@@ -81,63 +76,28 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [viewMode, setViewMode] = useState<'month' | 'year'>('month');
   const [metricMode, setMetricMode] = useState<'quantity' | 'amount'>('quantity');
+  const [selectedPeriod, setSelectedPeriod] = useState<string>('latest');
 
   const [monthlyData, setMonthlyData] = useState<AnalysisRecord[]>([]);
   const [yearlyData, setYearlyData] = useState<AnalysisRecord[]>([]);
-  const [kpi, setKpi] = useState<KPI | null>(null);
 
   const [advices, setAdvices] = useState<NewAdvice>({ weeklyStrategy: null, monthlyProduction: [], weeklyInventory: [] });
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // 1. 初回基本データロード
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchBaseData = async () => {
       try {
         setLoading(true);
         setErrorMsg(null);
-
-        // 1. 分析APIから基本データ取得
         const analysisRes = await fetch('/api/sales/analysis');
         if (!analysisRes.ok) throw new Error("売上分析データの取得に失敗しました。");
         const analysisData = await analysisRes.json();
-
-        // 直近24ヶ月分のみに絞る（多すぎるとチャートが潰れるため）
         const monthlySeries = analysisData.monthly || [];
-        const recentMonthly = monthlySeries.slice(-24);
-
-        setMonthlyData(recentMonthly);
+        // 直近48ヶ月分を保持（タイムマシン表示用にある程度持っておく）
+        setMonthlyData(monthlySeries.slice(-48));
         setYearlyData(analysisData.yearly || []);
-        setKpi(analysisData.kpi || null);
-
-        // 2. AI予測APIからのアドバイス取得 (非同期・失敗許容)
-        try {
-          const forecastRes = await fetch('/api/forecast', { method: 'POST' });
-          if (forecastRes.ok) {
-            const forecastData = await forecastRes.json();
-
-            const weeklyStrategy = forecastData.nextWeekStrategy ? {
-              title: forecastData.nextWeekStrategy.title || "次週営業方針",
-              content: forecastData.nextWeekStrategy.content || ""
-            } : null;
-
-            const monthlyProduction = (forecastData.monthlyProductionTargets || []).map((t: { productName: string; target: number; reasoning: string }) => ({
-              name: t.productName || "不明",
-              target: t.target || 0,
-              reasoning: t.reasoning || ""
-            }));
-
-            const weeklyInventory = (forecastData.weeklyInventoryInference || []).map((i: { productName: string; requiredInventory: number; reasoning: string }) => ({
-              name: i.productName || "不明",
-              required: i.requiredInventory || 0,
-              reasoning: i.reasoning || ""
-            }));
-
-            setAdvices({ weeklyStrategy, monthlyProduction, weeklyInventory });
-          }
-        } catch (fErr) {
-          console.warn("Forecast fetch failed:", fErr);
-        }
-
       } catch (error: unknown) {
         console.error("Dashboard Data Error:", error);
         setErrorMsg(error instanceof Error ? error.message : "エラーが発生しました。");
@@ -145,8 +105,57 @@ export default function Dashboard() {
         setLoading(false);
       }
     };
-    fetchData();
+    fetchBaseData();
   }, []);
+
+  // --- 派生データの計算 ---
+  const availablePeriods = useMemo(() => {
+    if (viewMode === 'month') {
+      return [...monthlyData].map(d => d.month || '').reverse();
+    } else {
+      return [...yearlyData].map(d => d.year || '').reverse();
+    }
+  }, [viewMode, monthlyData, yearlyData]);
+
+  const activeRecord = useMemo(() => {
+    const target = viewMode === 'month' ? monthlyData : yearlyData;
+    if (target.length === 0) return null;
+    if (selectedPeriod === 'latest' || !selectedPeriod) {
+      return target[target.length - 1];
+    } else {
+      const field = viewMode === 'month' ? 'month' : 'year';
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const found = target.find((d: any) => d[field] === selectedPeriod);
+      return found || target[target.length - 1];
+    }
+  }, [viewMode, monthlyData, yearlyData, selectedPeriod]);
+
+  // 2. AIアドバイスロード（activeRecord の期間が変化した時）
+  useEffect(() => {
+    const fetchAdvices = async () => {
+      if (!activeRecord || viewMode === 'year') {
+        setAdvices({ weeklyStrategy: null, monthlyProduction: [], weeklyInventory: [] });
+        return;
+      }
+      setAdvices({ weeklyStrategy: null, monthlyProduction: [], weeklyInventory: [] });
+      const targetMonth = activeRecord.month;
+      if (!targetMonth) return;
+      try {
+        const res = await fetch(`/api/forecast?month=${targetMonth}`);
+        if (res.ok) {
+          const data = await res.json();
+          setAdvices({
+            weeklyStrategy: data.nextWeekStrategy,
+            monthlyProduction: data.monthlyProductionTargets || [],
+            weeklyInventory: data.weeklyInventoryInference || []
+          });
+        }
+      } catch (err) {
+        console.warn("Forecast fetch failed:", err);
+      }
+    };
+    fetchAdvices();
+  }, [activeRecord, viewMode]);
 
   // --- 派生データの計算 ---
   const currentChartData = useMemo(() => {
@@ -166,17 +175,53 @@ export default function Dashboard() {
     }
   }, [viewMode, metricMode, monthlyData, yearlyData]);
 
-  // 最新データの特定（ランキング用）
-  const latestRecord = useMemo(() => {
-    const target = viewMode === 'month' ? monthlyData : yearlyData;
-    return target.length > 0 ? target[target.length - 1] : null;
-  }, [viewMode, monthlyData, yearlyData]);
+  const dynamicKpi = useMemo(() => {
+    if (!activeRecord) return null;
+    const isQty = metricMode === 'quantity';
+    const currentQty = activeRecord.actual;
+    const currentAmt = activeRecord.actualAmount || 0;
+
+    if (viewMode === 'year') {
+      // 年次のMoM/YoYは計算簡略化のため一旦null・または前年比のみ
+      // 今回は単月のMoM, YoY表示を重視するため省略
+      return { momChange: null, yoyChange: null };
+    }
+
+    const [yStr, mStr] = (activeRecord.month || "").split("-");
+    if (!yStr || !mStr) return { momChange: null, yoyChange: null };
+
+    let prevYNum = parseInt(yStr, 10);
+    let prevMNum = parseInt(mStr, 10) - 1;
+    if (prevMNum === 0) {
+      prevMNum = 12;
+      prevYNum -= 1;
+    }
+    const prevMonthKey = `${prevYNum}-${String(prevMNum).padStart(2, '0')}`;
+    const momRecord = monthlyData.find(d => d.month === prevMonthKey);
+
+    const prevYyNum = parseInt(yStr, 10) - 1;
+    const yoyKey = `${prevYyNum}-${mStr}`;
+    const yoyRecord = monthlyData.find(d => d.month === yoyKey);
+
+    const momQtyDiff = momRecord && momRecord.actual > 0 ? ((currentQty - momRecord.actual) / momRecord.actual) * 100 : null;
+    const momAmtDiff = momRecord && momRecord.actualAmount && momRecord.actualAmount > 0
+      ? ((currentAmt - momRecord.actualAmount) / momRecord.actualAmount) * 100 : null;
+
+    const yoyQtyDiff = yoyRecord && yoyRecord.actual > 0 ? ((currentQty - yoyRecord.actual) / yoyRecord.actual) * 100 : null;
+    const yoyAmtDiff = yoyRecord && yoyRecord.actualAmount && yoyRecord.actualAmount > 0
+      ? ((currentAmt - yoyRecord.actualAmount) / yoyRecord.actualAmount) * 100 : null;
+
+    return {
+      momChange: isQty ? momQtyDiff : momAmtDiff,
+      yoyChange: isQty ? yoyQtyDiff : yoyAmtDiff
+    };
+  }, [activeRecord, monthlyData, viewMode, metricMode]);
 
   const topCustomers = useMemo(() => {
-    if (!latestRecord) return [];
+    if (!activeRecord) return [];
     const isQty = metricMode === 'quantity';
-    const source = isQty ? latestRecord.customers : latestRecord.customersAmount;
-    const total = isQty ? latestRecord.actual : (latestRecord.actualAmount || 0);
+    const source = isQty ? activeRecord.customers : activeRecord.customersAmount;
+    const total = isQty ? activeRecord.actual : (activeRecord.actualAmount || 0);
 
     const entries = Object.entries(source || {});
     return entries.sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, val]) => ({
@@ -184,13 +229,13 @@ export default function Dashboard() {
       value: val,
       progress: total > 0 ? Math.min(Math.round((val / total) * 100), 100) : 0
     }));
-  }, [latestRecord, metricMode]);
+  }, [activeRecord, metricMode]);
 
   const topCategories = useMemo(() => {
-    if (!latestRecord) return [];
+    if (!activeRecord) return [];
     const isQty = metricMode === 'quantity';
-    const source = isQty ? latestRecord.categories : latestRecord.categoriesAmount;
-    const total = isQty ? latestRecord.actual : (latestRecord.actualAmount || 0);
+    const source = isQty ? activeRecord.categories : activeRecord.categoriesAmount;
+    const total = isQty ? activeRecord.actual : (activeRecord.actualAmount || 0);
 
     const entries = Object.entries(source || {});
     return entries.sort((a, b) => b[1] - a[1]).map(([name, val]) => ({
@@ -199,7 +244,7 @@ export default function Dashboard() {
       progress: total > 0 ? Math.min(Math.round((val / total) * 100), 100) : 0,
       color: CATEGORY_COLORS[name] || CATEGORY_COLORS["未分類"]
     }));
-  }, [latestRecord, metricMode]);
+  }, [activeRecord, metricMode]);
 
   // 日付のフォーマット関数
   function formatDate(raw: string) {
@@ -238,6 +283,21 @@ export default function Dashboard() {
             <p className="text-slate-400">最新の実績データに基づく多角的な売上分析</p>
           </div>
           <div className="flex gap-4 items-center">
+            {/* 表示期間セレクト */}
+            <div className="flex items-center gap-2">
+              <select
+                className="bg-slate-800/50 border border-slate-700 text-white text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-gold-500"
+                value={selectedPeriod}
+                onChange={(e) => setSelectedPeriod(e.target.value)}
+              >
+                <option value="latest">最新の{viewMode === 'month' ? '月' : '年'}</option>
+                {availablePeriods.map(p => (
+                  <option key={p} value={p}>{viewMode === 'month' ? formatDate(p) : `${p}年`}</option>
+                ))}
+              </select>
+            </div>
+            <div className="w-px h-6 bg-slate-700 mx-1"></div>
+
             <div className="flex p-1 bg-slate-800/50 rounded-lg border border-slate-700">
               <button
                 onClick={() => setMetricMode('quantity')}
@@ -273,9 +333,11 @@ export default function Dashboard() {
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <div className="p-6 rounded-3xl bg-navy-900/40 backdrop-blur-md border border-gold-500/20">
-            <p className="text-sm font-medium text-slate-400 mb-2">最新集計月</p>
+            <p className="text-sm font-medium text-slate-400 mb-2">表示{viewMode === 'month' ? '月' : '年'}</p>
             <div className="flex items-end justify-between">
-              <h3 className="text-2xl font-bold text-white">{kpi?.latestMonth || "---"}</h3>
+              <h3 className="text-2xl font-bold text-white">
+                {activeRecord ? (viewMode === 'month' ? formatDate(activeRecord.month!) : `${activeRecord.year}年`) : "---"}
+              </h3>
               <span className="text-xs font-bold px-2 py-1 rounded-full text-gold-400 bg-gold-400/10">Base</span>
             </div>
           </div>
@@ -283,7 +345,11 @@ export default function Dashboard() {
           <div className="p-6 rounded-3xl bg-navy-900/40 backdrop-blur-md border border-aqua-500/20">
             <p className="text-sm font-medium text-slate-400 mb-2">該当期間 売上実績</p>
             <div className="flex items-end justify-between">
-              <h3 className="text-2xl font-bold text-white">{latestRecord ? latestRecord.actual.toLocaleString() : "---"} <span className="text-base text-slate-400 font-normal">本</span></h3>
+              <h3 className="text-2xl font-bold text-white">
+                {metricMode === 'amount' && '¥'}
+                {activeRecord ? (metricMode === 'quantity' ? activeRecord.actual.toLocaleString() : (activeRecord.actualAmount || 0).toLocaleString()) : "---"}
+                <span className="text-base text-slate-400 font-normal ml-1">{metricMode === 'quantity' ? '本' : ''}</span>
+              </h3>
               <span className="text-xs font-bold px-2 py-1 rounded-full text-aqua-400 bg-aqua-400/10">確定値</span>
             </div>
           </div>
@@ -292,10 +358,10 @@ export default function Dashboard() {
             <p className="text-sm font-medium text-slate-400 mb-2">前月比 (MoM)</p>
             <div className="flex items-end justify-between">
               <h3 className="text-2xl font-bold text-white flex items-center gap-2">
-                {kpi?.momChange != null ? (
+                {dynamicKpi?.momChange != null ? (
                   <>
-                    {kpi.momChange > 0 ? <TrendingUp className="w-5 h-5 text-emerald-400" /> : <TrendingDown className="w-5 h-5 text-rose-400" />}
-                    {kpi.momChange > 0 ? "+" : ""}{kpi.momChange.toFixed(1)}%
+                    {dynamicKpi.momChange > 0 ? <TrendingUp className="w-5 h-5 text-emerald-400" /> : <TrendingDown className="w-5 h-5 text-rose-400" />}
+                    {dynamicKpi.momChange > 0 ? "+" : ""}{dynamicKpi.momChange.toFixed(1)}%
                   </>
                 ) : "---"}
               </h3>
@@ -306,10 +372,10 @@ export default function Dashboard() {
             <p className="text-sm font-medium text-slate-400 mb-2">昨対比 (YoY)</p>
             <div className="flex items-end justify-between">
               <h3 className="text-2xl font-bold text-white flex items-center gap-2">
-                {kpi?.yoyChange != null ? (
+                {dynamicKpi?.yoyChange != null ? (
                   <>
-                    {kpi.yoyChange > 0 ? <TrendingUp className="w-5 h-5 text-emerald-400" /> : <TrendingDown className="w-5 h-5 text-rose-400" />}
-                    {kpi.yoyChange > 0 ? "+" : ""}{kpi.yoyChange.toFixed(1)}%
+                    {dynamicKpi.yoyChange > 0 ? <TrendingUp className="w-5 h-5 text-emerald-400" /> : <TrendingDown className="w-5 h-5 text-rose-400" />}
+                    {dynamicKpi.yoyChange > 0 ? "+" : ""}{dynamicKpi.yoyChange.toFixed(1)}%
                   </>
                 ) : "---"}
               </h3>
@@ -375,12 +441,30 @@ export default function Dashboard() {
                   <span className="text-[10px] font-black px-2 py-0.5 rounded-md mb-2 bg-emerald-500/20 text-emerald-400 inline-block">次月製造目標</span>
                   <div className="mt-2 space-y-3">
                     {advices.monthlyProduction.map((p, idx) => (
-                      <div key={idx} className="border-b border-emerald-500/10 pb-2 last:border-0 last:pb-0">
+                      <div key={idx} className="border-b border-emerald-500/10 pb-3 last:border-0 last:pb-0">
                         <div className="flex justify-between items-center mb-1">
                           <span className="text-xs font-bold text-slate-200">{p.name}</span>
                           <span className="text-sm font-mono text-emerald-300">{p.target.toLocaleString()}本</span>
                         </div>
                         <p className="text-[10px] text-slate-400">{p.reasoning}</p>
+
+                        {/* 4週ごとのペース配分 */}
+                        {p.weeklyGuideline && p.weeklyGuideline.length > 0 && (
+                          <div className="mt-2 space-y-1.5 bg-navy-950/40 p-2 rounded-lg border border-emerald-500/10">
+                            {p.weeklyGuideline.map(wg => (
+                              <div key={wg.week}>
+                                <div className="flex justify-between mb-0.5 items-end">
+                                  <span className="text-[9px] font-bold text-slate-300">Week {wg.week}</span>
+                                  <span className="text-[10px] text-emerald-400 font-mono">{wg.amount.toLocaleString()}本 <span className="text-slate-500 text-[8px]">({wg.percentage}%)</span></span>
+                                </div>
+                                <div className="h-1 w-full bg-slate-800 rounded-full overflow-hidden mb-1">
+                                  <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${wg.percentage}%` }} />
+                                </div>
+                                <p className="text-[9px] text-slate-400 leading-tight">{wg.note}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
