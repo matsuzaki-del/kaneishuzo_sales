@@ -1,33 +1,43 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   LayoutDashboard,
   Target,
   Package,
   History,
   BarChart3,
-  Calendar,
   Zap,
-  MessageSquare,
-  AlertCircle
+  AlertCircle,
+  TrendingUp,
+  TrendingDown
 } from 'lucide-react';
 import {
-  AreaChart,
-  Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer
+  ResponsiveContainer,
+  Legend
 } from 'recharts';
 import { cn } from '@/lib/utils';
 
 // --- Types ---
-interface ForecastData {
-  month: string;
-  actual: number | null;
-  forecast: number | null;
+interface AnalysisRecord {
+  month?: string;
+  year?: string;
+  actual: number;
+  categories: Record<string, number>;
+  customers: Record<string, number>;
+}
+
+interface KPI {
+  latestMonth: string | null;
+  currentSales: number;
+  momChange: number;
+  yoyChange: number;
 }
 
 interface Advice {
@@ -51,19 +61,27 @@ const NavItem = ({ icon, label, active, onClick }: { icon: React.ReactNode, labe
   </button>
 );
 
+const CATEGORY_COLORS: Record<string, string> = {
+  "純米大吟醸酒": "#eab308", // gold-500
+  "純米吟醸酒": "#facc15",   // gold-400
+  "純米酒": "#06b6d4",       // aqua-500
+  "本醸造酒": "#6366f1",     // indigo-500
+  "普通酒": "#8b5cf6",       // violet-500
+  "リキュール": "#ec4899",     // pink-500
+  "未分類": "#64748b"        // slate-500
+};
+
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('overview');
-  const [chartData, setChartData] = useState<ForecastData[]>([]);
+  const [viewMode, setViewMode] = useState<'month' | 'year'>('month');
+
+  const [monthlyData, setMonthlyData] = useState<AnalysisRecord[]>([]);
+  const [yearlyData, setYearlyData] = useState<AnalysisRecord[]>([]);
+  const [kpi, setKpi] = useState<KPI | null>(null);
+
   const [advices, setAdvices] = useState<Advice[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [topProducts, setTopProducts] = useState<{ name: string; progress: number; color: string }[]>([]);
-  const [stats, setStats] = useState([
-    { label: '予測総需要', value: '---', change: '-', color: 'border-gold-500/20' },
-    { label: '最新月・売上実績', value: '---', change: '-', color: 'border-aqua-500/20' },
-    { label: '実績前月比', value: '---', change: '-', color: 'border-white/10' },
-    { label: 'AIシステム状態', value: 'データ解析中', change: 'Wait', color: 'border-green-500/20' },
-  ]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -71,72 +89,25 @@ export default function Dashboard() {
         setLoading(true);
         setErrorMsg(null);
 
-        // 実績データ取得
-        const salesRes = await fetch('/api/sales');
-        if (!salesRes.ok) {
-          const errData = await salesRes.json().catch(() => ({}));
-          throw new Error(errData.details || errData.error || "実績データの取得に失敗しました。");
-        }
-        const salesData = await salesRes.json();
+        // 1. 分析APIから基本データ取得
+        const analysisRes = await fetch('/api/sales/analysis');
+        if (!analysisRes.ok) throw new Error("売上分析データの取得に失敗しました。");
+        const analysisData = await analysisRes.json();
 
-        // 銘柄別Top3取得 (以前のハードコード箇所を実データへ)
-        const productsRes = await fetch('/api/products');
-        if (productsRes.ok) {
-          const productsData = await productsRes.json();
-          const sorted = (productsData as { name: string; currentMonthActual: number }[]).sort((a, b) => b.currentMonthActual - a.currentMonthActual).slice(0, 3);
-          const max = sorted[0]?.currentMonthActual || 1;
-          const colors = ['bg-gold-500', 'bg-aqua-500', 'bg-indigo-500'];
-          setTopProducts(sorted.map((p, i) => ({
-            name: p.name,
-            progress: Math.round((p.currentMonthActual / max) * 100),
-            color: colors[i]
-          })));
-        }
+        // 直近24ヶ月分のみに絞る（多すぎるとチャートが潰れるため）
+        const monthlySeries = analysisData.monthly || [];
+        const recentMonthly = monthlySeries.slice(-24);
 
-        // KPI計算
-        let currentActual = 0;
-        let prevActual = 0;
-        let momChangeStr = "-";
+        setMonthlyData(recentMonthly);
+        setYearlyData(analysisData.yearly || []);
+        setKpi(analysisData.kpi || null);
 
-        if (Array.isArray(salesData) && salesData.length >= 2) {
-          currentActual = salesData[salesData.length - 1].actual || 0;
-          prevActual = salesData[salesData.length - 2].actual || 0;
-          if (prevActual > 0) {
-            const diff = ((currentActual - prevActual) / prevActual) * 100;
-            momChangeStr = (diff > 0 ? "+" : "") + diff.toFixed(1) + "%";
-          }
-        }
-
-        const newStats = [
-          { label: '次月・予測総需要', value: 'AI計算中...', change: 'Wait', color: 'border-gold-500/20' },
-          { label: '最新月・売上実績', value: currentActual.toLocaleString() + ' 本', change: '確定値', color: 'border-aqua-500/20' },
-          { label: '実績前月比', value: momChangeStr, change: momChangeStr.startsWith('+') ? '上昇傾向' : '下降傾向', color: 'border-white/10' },
-          { label: 'AIシステム状態', value: '稼働中', change: 'Online', color: 'border-green-500/20' },
-        ];
-
-        // 予測データ取得
-        let combinedData = salesData;
-        let fetchedAdvices: { title: string; content: string; priority: 'HIGH' | 'MEDIUM' | 'INFO' }[] = [];
-
+        // 2. AI予測APIからのアドバイス取得 (非同期・失敗許容)
         try {
           const forecastRes = await fetch('/api/forecast', { method: 'POST' });
           if (forecastRes.ok) {
             const forecastData = await forecastRes.json();
-            // forecastData.forecasts (銘柄別予測) の合計を全体予測とする
-            const totalForecast = (forecastData.forecasts as { forecast: number }[] | undefined)?.reduce((sum, f) => sum + (f.forecast || 0), 0) || 0;
-
-            if (totalForecast > 0) {
-              combinedData = [...salesData, {
-                month: "来月予測",
-                actual: null,
-                forecast: totalForecast
-              }];
-              newStats[0].value = totalForecast.toLocaleString() + ' 本';
-              newStats[0].change = 'AI予測';
-            }
-
-            // 銘柄別戦略をアドバイス欄に表示
-            fetchedAdvices = (forecastData.brandStrategies as { title: string; content: string; priority: 'HIGH' | 'MEDIUM' | 'INFO' }[] || []).slice(0, 5).map((s) => ({
+            const fetchedAdvices: Advice[] = (forecastData.brandStrategies || []).slice(0, 5).map((s: { title: string; content: string; priority: 'HIGH' | 'MEDIUM' | 'INFO' }) => ({
               title: s.title,
               content: s.content,
               priority: s.priority
@@ -149,14 +120,11 @@ export default function Dashboard() {
                 priority: "HIGH"
               });
             }
+            setAdvices(fetchedAdvices);
           }
         } catch (fErr) {
-          console.warn("Forecast fail:", fErr);
+          console.warn("Forecast fetch failed:", fErr);
         }
-
-        setChartData(combinedData);
-        setAdvices(fetchedAdvices);
-        setStats(newStats);
 
       } catch (error: unknown) {
         console.error("Dashboard Data Error:", error);
@@ -167,6 +135,51 @@ export default function Dashboard() {
     };
     fetchData();
   }, []);
+
+  // --- 派生データの計算 ---
+  const currentChartData = useMemo(() => {
+    if (viewMode === 'month') {
+      return monthlyData.map(d => ({
+        name: d.month,
+        actual: d.actual,
+        ...d.categories // 積み上げ棒グラフ用に展開
+      }));
+    } else {
+      return yearlyData.map(d => ({
+        name: d.year,
+        actual: d.actual,
+        ...d.categories
+      }));
+    }
+  }, [viewMode, monthlyData, yearlyData]);
+
+  // 最新データの特定（ランキング用）
+  const latestRecord = useMemo(() => {
+    const target = viewMode === 'month' ? monthlyData : yearlyData;
+    return target.length > 0 ? target[target.length - 1] : null;
+  }, [viewMode, monthlyData, yearlyData]);
+
+  const topCustomers = useMemo(() => {
+    if (!latestRecord) return [];
+    const entries = Object.entries(latestRecord.customers);
+    return entries.sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, val]) => ({
+      name,
+      value: val,
+      progress: Math.min(Math.round((val / latestRecord.actual) * 100), 100)
+    }));
+  }, [latestRecord]);
+
+  const topCategories = useMemo(() => {
+    if (!latestRecord) return [];
+    const entries = Object.entries(latestRecord.categories);
+    return entries.sort((a, b) => b[1] - a[1]).map(([name, val]) => ({
+      name,
+      value: val,
+      progress: Math.min(Math.round((val / latestRecord.actual) * 100), 100),
+      color: CATEGORY_COLORS[name] || CATEGORY_COLORS["未分類"]
+    }));
+  }, [latestRecord]);
+
 
   return (
     <div className="flex min-h-screen bg-navy-950 text-slate-100 font-sans">
@@ -192,37 +205,81 @@ export default function Dashboard() {
       <main className="flex-1 overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-navy-900 via-navy-950 to-black p-8">
         <header className="flex justify-between items-center mb-8">
           <div>
-            <h2 className="text-3xl font-bold text-white mb-2">需要予測ダッシュボード</h2>
-            <p className="text-slate-400">11.3万件の実績に基づくAI需要予測と生産最適化</p>
+            <h2 className="text-3xl font-bold text-white mb-2">売上・需要分析ダッシュボード</h2>
+            <p className="text-slate-400">最新の実績データに基づく多角的な売上分析</p>
           </div>
           <div className="flex gap-4">
-            <button className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800/50 border border-slate-700 text-sm font-medium">
-              <Calendar className="w-4 h-4" />
-              2026年 3月
-            </button>
+            <div className="flex p-1 bg-slate-800/50 rounded-lg border border-slate-700">
+              <button
+                onClick={() => setViewMode('month')}
+                className={cn("px-4 py-1.5 text-sm font-medium rounded-md transition-colors", viewMode === 'month' ? "bg-gold-500 text-navy-950" : "text-slate-400 hover:text-white")}
+              >
+                月次表示
+              </button>
+              <button
+                onClick={() => setViewMode('year')}
+                className={cn("px-4 py-1.5 text-sm font-medium rounded-md transition-colors", viewMode === 'year' ? "bg-gold-500 text-navy-950" : "text-slate-400 hover:text-white")}
+              >
+                年次表示
+              </button>
+            </div>
           </div>
         </header>
 
+        {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {stats.map((stat, i) => (
-            <div key={i} className={cn("p-6 rounded-3xl bg-navy-900/40 backdrop-blur-md border", stat.color)}>
-              <p className="text-sm font-medium text-slate-400 mb-2">{stat.label}</p>
-              <div className="flex items-end justify-between">
-                <h3 className="text-2xl font-bold text-white">{stat.value}</h3>
-                <span className="text-xs font-bold px-2 py-1 rounded-full text-gold-400 bg-gold-400/10">
-                  {stat.change}
-                </span>
-              </div>
+          <div className="p-6 rounded-3xl bg-navy-900/40 backdrop-blur-md border border-gold-500/20">
+            <p className="text-sm font-medium text-slate-400 mb-2">最新集計月</p>
+            <div className="flex items-end justify-between">
+              <h3 className="text-2xl font-bold text-white">{kpi?.latestMonth || "---"}</h3>
+              <span className="text-xs font-bold px-2 py-1 rounded-full text-gold-400 bg-gold-400/10">Base</span>
             </div>
-          ))}
+          </div>
+
+          <div className="p-6 rounded-3xl bg-navy-900/40 backdrop-blur-md border border-aqua-500/20">
+            <p className="text-sm font-medium text-slate-400 mb-2">該当期間 売上実績</p>
+            <div className="flex items-end justify-between">
+              <h3 className="text-2xl font-bold text-white">{latestRecord ? latestRecord.actual.toLocaleString() : "---"} <span className="text-base text-slate-400 font-normal">本</span></h3>
+              <span className="text-xs font-bold px-2 py-1 rounded-full text-aqua-400 bg-aqua-400/10">確定値</span>
+            </div>
+          </div>
+
+          <div className="p-6 rounded-3xl bg-navy-900/40 backdrop-blur-md border border-white/10">
+            <p className="text-sm font-medium text-slate-400 mb-2">前月比 (MoM)</p>
+            <div className="flex items-end justify-between">
+              <h3 className="text-2xl font-bold text-white flex items-center gap-2">
+                {kpi?.momChange != null ? (
+                  <>
+                    {kpi.momChange > 0 ? <TrendingUp className="w-5 h-5 text-emerald-400" /> : <TrendingDown className="w-5 h-5 text-rose-400" />}
+                    {kpi.momChange > 0 ? "+" : ""}{kpi.momChange.toFixed(1)}%
+                  </>
+                ) : "---"}
+              </h3>
+            </div>
+          </div>
+
+          <div className="p-6 rounded-3xl bg-navy-900/40 backdrop-blur-md border border-white/10">
+            <p className="text-sm font-medium text-slate-400 mb-2">昨対比 (YoY)</p>
+            <div className="flex items-end justify-between">
+              <h3 className="text-2xl font-bold text-white flex items-center gap-2">
+                {kpi?.yoyChange != null ? (
+                  <>
+                    {kpi.yoyChange > 0 ? <TrendingUp className="w-5 h-5 text-emerald-400" /> : <TrendingDown className="w-5 h-5 text-rose-400" />}
+                    {kpi.yoyChange > 0 ? "+" : ""}{kpi.yoyChange.toFixed(1)}%
+                  </>
+                ) : "---"}
+              </h3>
+            </div>
+          </div>
         </div>
 
+        {/* Main Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
           <div className="lg:col-span-2 p-8 rounded-3xl bg-navy-900/40 backdrop-blur-md border border-slate-800/50">
-            <h3 className="text-xl font-bold text-white mb-8">需要トレンド予測 (全銘柄合計)</h3>
-            <div className="h-[300px] w-full">
+            <h3 className="text-xl font-bold text-white mb-6">売上推移と製成別構成 ({viewMode === 'month' ? '月次' : '年次'})</h3>
+            <div className="h-[350px] w-full">
               {loading ? (
-                <div className="w-full h-full flex items-center justify-center text-slate-500">AIがデータを解析中...</div>
+                <div className="w-full h-full flex items-center justify-center text-slate-500">データを集計中...</div>
               ) : errorMsg ? (
                 <div className="w-full h-full flex flex-col items-center justify-center text-rose-400">
                   <AlertCircle className="w-12 h-12 mb-4 opacity-50" />
@@ -230,24 +287,21 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="colorActual" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="colorForecast" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#eab308" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#eab308" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
+                  <BarChart data={currentChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                    <XAxis dataKey="month" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
+                    <XAxis dataKey="name" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
                     <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }} />
-                    <Area type="monotone" dataKey="actual" stroke="#06b6d4" strokeWidth={3} fill="url(#colorActual)" />
-                    <Area type="monotone" dataKey="forecast" stroke="#eab308" strokeWidth={3} strokeDasharray="5 5" fill="url(#colorForecast)" />
-                  </AreaChart>
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }}
+                      itemStyle={{ fontSize: '12px' }}
+                      labelStyle={{ color: '#94a3b8', marginBottom: '8px', fontSize: '14px', fontWeight: 'bold' }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '20px' }} />
+                    {Object.keys(CATEGORY_COLORS).filter(k => k !== "未分類").map(category => (
+                      <Bar key={category} dataKey={category} stackId="a" fill={CATEGORY_COLORS[category]} />
+                    ))}
+                    <Bar dataKey="未分類" stackId="a" fill={CATEGORY_COLORS["未分類"]} />
+                  </BarChart>
                 </ResponsiveContainer>
               )}
             </div>
@@ -275,18 +329,22 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Detailed Breakdown */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="p-8 rounded-3xl bg-navy-900/40 backdrop-blur-md border border-slate-800/50">
-            <h3 className="text-xl font-bold text-white mb-6">主力銘柄・実績内訳</h3>
-            <div className="space-y-6">
-              {topProducts.length > 0 ? topProducts.map((item, i) => (
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-white">上位取引先 ({viewMode === 'month' ? '単月' : '年間'})</h3>
+              <span className="text-xs font-medium bg-slate-800 text-slate-300 px-3 py-1 rounded-full">Top 5</span>
+            </div>
+            <div className="space-y-5">
+              {topCustomers.length > 0 ? topCustomers.map((item, i) => (
                 <div key={i}>
                   <div className="flex justify-between text-sm mb-2">
-                    <span className="text-slate-300 font-medium">{item.name}</span>
-                    <span className="text-slate-400">{item.progress}%</span>
+                    <span className="text-slate-200 font-medium truncate pr-4">{item.name}</span>
+                    <span className="text-slate-400 font-mono">{item.value.toLocaleString()} <span className="text-[10px] ml-1">本</span> ({item.progress}%)</span>
                   </div>
-                  <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
-                    <div className={cn("h-full rounded-full", item.color)} style={{ width: `${item.progress}%` }} />
+                  <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full bg-indigo-400" style={{ width: `${item.progress}%` }} />
                   </div>
                 </div>
               )) : (
@@ -294,11 +352,30 @@ export default function Dashboard() {
               )}
             </div>
           </div>
-          <div className="p-8 rounded-3xl bg-navy-900/40 backdrop-blur-md border border-slate-800/50 flex flex-col items-center justify-center">
-            <MessageSquare className="text-aqua-400 w-8 h-8 mb-4" />
-            <p className="text-slate-400 text-center">AIがリアルタイムでデータを監視し、<br />在庫・配送の最適化を提案しています。</p>
+
+          <div className="p-8 rounded-3xl bg-navy-900/40 backdrop-blur-md border border-slate-800/50">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-white">製成別構成 ({viewMode === 'month' ? '単月' : '年間'})</h3>
+              <span className="text-xs font-medium bg-slate-800 text-slate-300 px-3 py-1 rounded-full">All Categories</span>
+            </div>
+            <div className="space-y-5">
+              {topCategories.length > 0 ? topCategories.map((item, i) => (
+                <div key={i}>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span className="text-slate-200 font-medium">{item.name}</span>
+                    <span className="text-slate-400 font-mono">{item.value.toLocaleString()} <span className="text-[10px] ml-1">本</span> ({item.progress}%)</span>
+                  </div>
+                  <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: `${item.progress}%`, backgroundColor: item.color }} />
+                  </div>
+                </div>
+              )) : (
+                <p className="text-xs text-slate-500">データ読み込み中...</p>
+              )}
+            </div>
           </div>
         </div>
+
       </main>
     </div>
   );
