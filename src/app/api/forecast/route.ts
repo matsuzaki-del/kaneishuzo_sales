@@ -39,26 +39,32 @@ export async function POST() {
 
         const prompt = `
 あなたは老舗酒造店「金井酒造店」のAI経営・営業コンサルタントです。
-以下の各銘柄の過去の月別売上データに基づき、次月（${nextMonth}）の需要予測と、売上目標達成のための具体的な「銘柄別営業アクション」を提案してください。
+以下の各銘柄の過去の月別売上データに基づき、次月（${nextMonth}）の需要予測と、それを基にした「経営の次の一手」を提案してください。
 
 【過去のデータ（銘柄別）】
 ${dataString}
 
 【要件】
-1. 各銘柄について、次月の販売予測本数を算出してください。
-2. 重点的に取り組むべき銘柄について、具体的な営業アクションを提案してください。
-   アクションには「どこで（例：居酒屋、地酒専門店）」「どのように（例：飲み比べセットの提案）」といった具体性を持たせてください。
-3. 全体的な月次営業方針も1つ含めてください。
+1. 各銘柄について、次月の販売予測本数を算出してください (forecasts)。
+2. それらの予測を踏まえた上で、来週の営業方針（どこにどう売り込むか）を立案してください (nextWeekStrategy)。
+3. 指定の月（次月）の製造本数の目標数値を銘柄ごとに論理的に算出してください (monthlyProductionTargets)。
+4. 週次でどのような在庫がどれくらいあればいいかの推論を行ってください (weeklyInventoryInference)。
 
 【出力形式（JSONのみ）】
 {
   "forecasts": [
     { "productId": "id", "productName": "名前", "forecast": 数値 }
   ],
-  "brandStrategies": [
-    { "productId": "id", "title": "アクション名", "content": "具体的な説明", "priority": "HIGH|MEDIUM|INFO" }
+  "nextWeekStrategy": {
+    "title": "来週の重点営業方針",
+    "content": "具体的な方針やアクション"
+  },
+  "monthlyProductionTargets": [
+    { "productId": "id", "productName": "名前", "target": 数値, "reasoning": "目標設定の理由" }
   ],
-  "overallAdvice": "全体の月次方針"
+  "weeklyInventoryInference": [
+    { "productId": "id", "productName": "名前", "requiredInventory": 数値, "reasoning": "推論の理由" }
+  ]
 }
 `;
 
@@ -84,40 +90,58 @@ ${dataString}
             }
         }
 
-        // 営業戦略の保存
+        // AIの戦略・推論の保存
         const allStrategies = [];
 
-        // 銘柄別
-        if (aiResponse.brandStrategies && Array.isArray(aiResponse.brandStrategies)) {
-            for (const s of aiResponse.brandStrategies) {
+        // 1. 来週の営業方針
+        if (aiResponse.nextWeekStrategy) {
+            allStrategies.push({
+                month: currentMonth,
+                title: aiResponse.nextWeekStrategy.title || "来週の営業方針",
+                content: aiResponse.nextWeekStrategy.content,
+                priority: "HIGH",
+                category: "WEEKLY_STRATEGY",
+                status: "ACTIVE"
+            });
+        }
+
+        // 2. 次月の製造目標
+        if (aiResponse.monthlyProductionTargets && Array.isArray(aiResponse.monthlyProductionTargets)) {
+            for (const t of aiResponse.monthlyProductionTargets) {
                 allStrategies.push({
                     month: currentMonth,
-                    productId: s.productId,
-                    title: s.title || "銘柄別施策",
-                    content: s.content,
-                    priority: s.priority || "MEDIUM",
-                    category: "AI_GENERATED",
+                    productId: t.productId,
+                    title: `製造目標: ${t.target}本`,
+                    content: t.reasoning,
+                    priority: "MEDIUM",
+                    category: "MONTHLY_PRODUCTION",
                     status: "PENDING"
                 });
             }
         }
 
-        // 全体方針
-        if (aiResponse.overallAdvice) {
-            allStrategies.push({
-                month: currentMonth,
-                title: "今月の全体方針",
-                content: aiResponse.overallAdvice,
-                priority: "HIGH",
-                category: "AI_GENERATED",
-                status: "ACTIVE"
-            });
+        // 3. 週次必要在庫推論
+        if (aiResponse.weeklyInventoryInference && Array.isArray(aiResponse.weeklyInventoryInference)) {
+            for (const i of aiResponse.weeklyInventoryInference) {
+                allStrategies.push({
+                    month: currentMonth,
+                    productId: i.productId,
+                    title: `週次適正在庫: ${i.requiredInventory}本`,
+                    content: i.reasoning,
+                    priority: "INFO",
+                    category: "WEEKLY_INVENTORY",
+                    status: "PENDING"
+                });
+            }
         }
 
         if (allStrategies.length > 0) {
-            // 当月の既存AI生成施策をクリア
+            // 当月の既存AI生成施策をクリア (WEEKLY_STRATEGY, MONTHLY_PRODUCTION, WEEKLY_INVENTORY)
             await prisma.salesStrategy.deleteMany({
-                where: { month: currentMonth, category: "AI_GENERATED" }
+                where: {
+                    month: currentMonth,
+                    category: { in: ["WEEKLY_STRATEGY", "MONTHLY_PRODUCTION", "WEEKLY_INVENTORY", "AI_GENERATED"] }
+                }
             });
 
             // まとめて作成

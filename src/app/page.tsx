@@ -29,21 +29,27 @@ interface AnalysisRecord {
   month?: string;
   year?: string;
   actual: number;
+  actualAmount: number;
   categories: Record<string, number>;
+  categoriesAmount: Record<string, number>;
   customers: Record<string, number>;
+  customersAmount: Record<string, number>;
 }
 
 interface KPI {
   latestMonth: string | null;
   currentSales: number;
+  currentAmount: number;
   momChange: number;
   yoyChange: number;
+  momChangeAmount: number;
+  yoyChangeAmount: number;
 }
 
-interface Advice {
-  title: string;
-  content: string;
-  priority: 'HIGH' | 'MEDIUM' | 'INFO';
+interface NewAdvice {
+  weeklyStrategy: { title: string, content: string } | null;
+  monthlyProduction: { name: string, target: number, reasoning: string }[];
+  weeklyInventory: { name: string, required: number, reasoning: string }[];
 }
 
 const NavItem = ({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active?: boolean, onClick?: () => void }) => (
@@ -74,12 +80,13 @@ const CATEGORY_COLORS: Record<string, string> = {
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [viewMode, setViewMode] = useState<'month' | 'year'>('month');
+  const [metricMode, setMetricMode] = useState<'quantity' | 'amount'>('quantity');
 
   const [monthlyData, setMonthlyData] = useState<AnalysisRecord[]>([]);
   const [yearlyData, setYearlyData] = useState<AnalysisRecord[]>([]);
   const [kpi, setKpi] = useState<KPI | null>(null);
 
-  const [advices, setAdvices] = useState<Advice[]>([]);
+  const [advices, setAdvices] = useState<NewAdvice>({ weeklyStrategy: null, monthlyProduction: [], weeklyInventory: [] });
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -107,20 +114,25 @@ export default function Dashboard() {
           const forecastRes = await fetch('/api/forecast', { method: 'POST' });
           if (forecastRes.ok) {
             const forecastData = await forecastRes.json();
-            const fetchedAdvices: Advice[] = (forecastData.brandStrategies || []).slice(0, 5).map((s: { title: string; content: string; priority: 'HIGH' | 'MEDIUM' | 'INFO' }) => ({
-              title: s.title,
-              content: s.content,
-              priority: s.priority
+
+            const weeklyStrategy = forecastData.nextWeekStrategy ? {
+              title: forecastData.nextWeekStrategy.title || "次週営業方針",
+              content: forecastData.nextWeekStrategy.content || ""
+            } : null;
+
+            const monthlyProduction = (forecastData.monthlyProductionTargets || []).map((t: { productName: string; target: number; reasoning: string }) => ({
+              name: t.productName || "不明",
+              target: t.target || 0,
+              reasoning: t.reasoning || ""
             }));
 
-            if (forecastData.overallAdvice) {
-              fetchedAdvices.unshift({
-                title: "全体方針",
-                content: forecastData.overallAdvice,
-                priority: "HIGH"
-              });
-            }
-            setAdvices(fetchedAdvices);
+            const weeklyInventory = (forecastData.weeklyInventoryInference || []).map((i: { productName: string; requiredInventory: number; reasoning: string }) => ({
+              name: i.productName || "不明",
+              required: i.requiredInventory || 0,
+              reasoning: i.reasoning || ""
+            }));
+
+            setAdvices({ weeklyStrategy, monthlyProduction, weeklyInventory });
           }
         } catch (fErr) {
           console.warn("Forecast fetch failed:", fErr);
@@ -138,20 +150,21 @@ export default function Dashboard() {
 
   // --- 派生データの計算 ---
   const currentChartData = useMemo(() => {
+    const isQty = metricMode === 'quantity';
     if (viewMode === 'month') {
       return monthlyData.map(d => ({
-        name: d.month,
-        actual: d.actual,
-        ...d.categories // 積み上げ棒グラフ用に展開
+        name: d.month ? formatDate(d.month) : '',
+        actual: isQty ? d.actual : (d.actualAmount || 0),
+        ...(isQty ? d.categories : d.categoriesAmount)
       }));
     } else {
       return yearlyData.map(d => ({
-        name: d.year,
-        actual: d.actual,
-        ...d.categories
+        name: d.year ? `${d.year}年` : '',
+        actual: isQty ? d.actual : (d.actualAmount || 0),
+        ...(isQty ? d.categories : d.categoriesAmount)
       }));
     }
-  }, [viewMode, monthlyData, yearlyData]);
+  }, [viewMode, metricMode, monthlyData, yearlyData]);
 
   // 最新データの特定（ランキング用）
   const latestRecord = useMemo(() => {
@@ -161,24 +174,40 @@ export default function Dashboard() {
 
   const topCustomers = useMemo(() => {
     if (!latestRecord) return [];
-    const entries = Object.entries(latestRecord.customers);
+    const isQty = metricMode === 'quantity';
+    const source = isQty ? latestRecord.customers : latestRecord.customersAmount;
+    const total = isQty ? latestRecord.actual : (latestRecord.actualAmount || 0);
+
+    const entries = Object.entries(source || {});
     return entries.sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, val]) => ({
       name,
       value: val,
-      progress: Math.min(Math.round((val / latestRecord.actual) * 100), 100)
+      progress: total > 0 ? Math.min(Math.round((val / total) * 100), 100) : 0
     }));
-  }, [latestRecord]);
+  }, [latestRecord, metricMode]);
 
   const topCategories = useMemo(() => {
     if (!latestRecord) return [];
-    const entries = Object.entries(latestRecord.categories);
+    const isQty = metricMode === 'quantity';
+    const source = isQty ? latestRecord.categories : latestRecord.categoriesAmount;
+    const total = isQty ? latestRecord.actual : (latestRecord.actualAmount || 0);
+
+    const entries = Object.entries(source || {});
     return entries.sort((a, b) => b[1] - a[1]).map(([name, val]) => ({
       name,
       value: val,
-      progress: Math.min(Math.round((val / latestRecord.actual) * 100), 100),
+      progress: total > 0 ? Math.min(Math.round((val / total) * 100), 100) : 0,
       color: CATEGORY_COLORS[name] || CATEGORY_COLORS["未分類"]
     }));
-  }, [latestRecord]);
+  }, [latestRecord, metricMode]);
+
+  // 日付のフォーマット関数
+  function formatDate(raw: string) {
+    if (!raw) return "";
+    const [y, m] = raw.split('-');
+    if (!m) return `${y}年`;
+    return `${y}年 ${parseInt(m, 10)}月`;
+  }
 
 
   return (
@@ -208,17 +237,32 @@ export default function Dashboard() {
             <h2 className="text-3xl font-bold text-white mb-2">売上・需要分析ダッシュボード</h2>
             <p className="text-slate-400">最新の実績データに基づく多角的な売上分析</p>
           </div>
-          <div className="flex gap-4">
+          <div className="flex gap-4 items-center">
+            <div className="flex p-1 bg-slate-800/50 rounded-lg border border-slate-700">
+              <button
+                onClick={() => setMetricMode('quantity')}
+                className={cn("px-4 py-1.5 text-sm font-medium rounded-md transition-colors", metricMode === 'quantity' ? "bg-gold-500 text-navy-950" : "text-slate-400 hover:text-white")}
+              >
+                販売本数
+              </button>
+              <button
+                onClick={() => setMetricMode('amount')}
+                className={cn("px-4 py-1.5 text-sm font-medium rounded-md transition-colors", metricMode === 'amount' ? "bg-gold-500 text-navy-950" : "text-slate-400 hover:text-white")}
+              >
+                金額ベース
+              </button>
+            </div>
+            <div className="w-px h-6 bg-slate-700 mx-1"></div>
             <div className="flex p-1 bg-slate-800/50 rounded-lg border border-slate-700">
               <button
                 onClick={() => setViewMode('month')}
-                className={cn("px-4 py-1.5 text-sm font-medium rounded-md transition-colors", viewMode === 'month' ? "bg-gold-500 text-navy-950" : "text-slate-400 hover:text-white")}
+                className={cn("px-4 py-1.5 text-sm font-medium rounded-md transition-colors", viewMode === 'month' ? "bg-slate-600 text-white" : "text-slate-400 hover:text-white")}
               >
                 月次表示
               </button>
               <button
                 onClick={() => setViewMode('year')}
-                className={cn("px-4 py-1.5 text-sm font-medium rounded-md transition-colors", viewMode === 'year' ? "bg-gold-500 text-navy-950" : "text-slate-400 hover:text-white")}
+                className={cn("px-4 py-1.5 text-sm font-medium rounded-md transition-colors", viewMode === 'year' ? "bg-slate-600 text-white" : "text-slate-400 hover:text-white")}
               >
                 年次表示
               </button>
@@ -307,23 +351,62 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="p-6 flex flex-col space-y-6 rounded-3xl bg-navy-900/40 backdrop-blur-md border border-slate-800/50">
-            <div className="flex items-center gap-3">
-              <Zap className="text-gold-400 w-5 h-5" />
-              <h3 className="font-bold text-lg text-white">AI戦略アドバイス</h3>
+          <div className="p-6 flex flex-col space-y-4 rounded-3xl bg-navy-900/40 backdrop-blur-md border border-slate-800/50 h-[450px]">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Zap className="text-gold-400 w-5 h-5" />
+                <h3 className="font-bold text-lg text-white">AI 戦略オラクル</h3>
+              </div>
             </div>
-            <div className="space-y-4 flex-1 overflow-y-auto pr-1">
-              {advices.length > 0 ? advices.map((advice, i) => (
-                <div key={i} className="p-4 rounded-2xl bg-slate-800/40 border border-slate-700/50">
-                  <span className={cn("text-[10px] font-black px-2 py-0.5 rounded-md mb-2 block w-fit",
-                    advice.priority === 'HIGH' ? "bg-red-500/20 text-red-400" : "bg-gold-500/20 text-gold-400")}>
-                    {advice.priority}
-                  </span>
-                  <h4 className="text-sm font-bold text-slate-100 mb-1">{advice.title}</h4>
-                  <p className="text-xs text-slate-400">{advice.content}</p>
+            <div className="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar">
+
+              {/* 週次営業方針 */}
+              {advices.weeklyStrategy ? (
+                <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20">
+                  <span className="text-[10px] font-black px-2 py-0.5 rounded-md mb-2 bg-indigo-500/20 text-indigo-400 inline-block">次週営業方針</span>
+                  <h4 className="text-sm font-bold text-slate-100 mb-1">{advices.weeklyStrategy.title}</h4>
+                  <p className="text-xs text-slate-300 leading-relaxed">{advices.weeklyStrategy.content}</p>
                 </div>
-              )) : (
-                <p className="text-xs text-slate-500 text-center py-10">アドバイス生成中...</p>
+              ) : null}
+
+              {/* 製造目標 */}
+              {advices.monthlyProduction.length > 0 && (
+                <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
+                  <span className="text-[10px] font-black px-2 py-0.5 rounded-md mb-2 bg-emerald-500/20 text-emerald-400 inline-block">次月製造目標</span>
+                  <div className="mt-2 space-y-3">
+                    {advices.monthlyProduction.map((p, idx) => (
+                      <div key={idx} className="border-b border-emerald-500/10 pb-2 last:border-0 last:pb-0">
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-xs font-bold text-slate-200">{p.name}</span>
+                          <span className="text-sm font-mono text-emerald-300">{p.target.toLocaleString()}本</span>
+                        </div>
+                        <p className="text-[10px] text-slate-400">{p.reasoning}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 週次在庫 */}
+              {advices.weeklyInventory.length > 0 && (
+                <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20">
+                  <span className="text-[10px] font-black px-2 py-0.5 rounded-md mb-2 bg-amber-500/20 text-amber-500 inline-block">週次適正在庫 推論</span>
+                  <div className="mt-2 space-y-3">
+                    {advices.weeklyInventory.map((inv, idx) => (
+                      <div key={idx} className="border-b border-amber-500/10 pb-2 last:border-0 last:pb-0">
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-xs font-bold text-slate-200">{inv.name}</span>
+                          <span className="text-sm font-mono text-amber-300">{inv.required.toLocaleString()}本維持</span>
+                        </div>
+                        <p className="text-[10px] text-slate-400">{inv.reasoning}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(!advices.weeklyStrategy && advices.monthlyProduction.length === 0) && (
+                <p className="text-xs text-slate-500 text-center py-10">推論AIを起動中...</p>
               )}
             </div>
           </div>
@@ -341,7 +424,12 @@ export default function Dashboard() {
                 <div key={i}>
                   <div className="flex justify-between text-sm mb-2">
                     <span className="text-slate-200 font-medium truncate pr-4">{item.name}</span>
-                    <span className="text-slate-400 font-mono">{item.value.toLocaleString()} <span className="text-[10px] ml-1">本</span> ({item.progress}%)</span>
+                    <span className="text-slate-400 font-mono">
+                      {metricMode === 'amount' && '¥'}
+                      {item.value.toLocaleString()}
+                      <span className="text-[10px] ml-1">{metricMode === 'quantity' ? '本' : ''}</span>
+                      ({item.progress}%)
+                    </span>
                   </div>
                   <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
                     <div className="h-full rounded-full bg-indigo-400" style={{ width: `${item.progress}%` }} />
@@ -363,7 +451,12 @@ export default function Dashboard() {
                 <div key={i}>
                   <div className="flex justify-between text-sm mb-2">
                     <span className="text-slate-200 font-medium">{item.name}</span>
-                    <span className="text-slate-400 font-mono">{item.value.toLocaleString()} <span className="text-[10px] ml-1">本</span> ({item.progress}%)</span>
+                    <span className="text-slate-400 font-mono">
+                      {metricMode === 'amount' && '¥'}
+                      {item.value.toLocaleString()}
+                      <span className="text-[10px] ml-1">{metricMode === 'quantity' ? '本' : ''}</span>
+                      ({item.progress}%)
+                    </span>
                   </div>
                   <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
                     <div className="h-full rounded-full" style={{ width: `${item.progress}%`, backgroundColor: item.color }} />
